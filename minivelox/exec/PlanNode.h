@@ -160,4 +160,107 @@ private:
     RowTypePtr outputType_;
 };
 
+// OrderByNode
+class OrderByNode : public PlanNode {
+public:
+    OrderByNode(PlanNodeId id, PlanNodePtr source, std::vector<std::string> sortingKeys, 
+                std::vector<bool> sortingOrders, bool isPartial)
+        : PlanNode(std::move(id)), source_(std::move(source)), sortingKeys_(std::move(sortingKeys)),
+          sortingOrders_(std::move(sortingOrders)), isPartial_(isPartial) {}
+
+    const RowTypePtr& outputType() const override { return source_->outputType(); }
+    std::vector<PlanNodePtr> sources() const override { return {source_}; }
+    std::string toString() const override { return "OrderBy"; }
+    
+    const std::vector<std::string>& sortingKeys() const { return sortingKeys_; }
+    const std::vector<bool>& sortingOrders() const { return sortingOrders_; } // true = asc?
+
+private:
+    PlanNodePtr source_;
+    std::vector<std::string> sortingKeys_;
+    std::vector<bool> sortingOrders_;
+    bool isPartial_;
+};
+
+// TopNNode
+class TopNNode : public PlanNode {
+public:
+    TopNNode(PlanNodeId id, PlanNodePtr source, int32_t count, std::vector<std::string> sortingKeys, 
+             std::vector<bool> sortingOrders, bool isPartial)
+        : PlanNode(std::move(id)), source_(std::move(source)), count_(count), 
+          sortingKeys_(std::move(sortingKeys)), sortingOrders_(std::move(sortingOrders)), isPartial_(isPartial) {}
+
+    const RowTypePtr& outputType() const override { return source_->outputType(); }
+    std::vector<PlanNodePtr> sources() const override { return {source_}; }
+    std::string toString() const override { return "TopN"; }
+    
+    int32_t count() const { return count_; }
+    const std::vector<std::string>& sortingKeys() const { return sortingKeys_; }
+    const std::vector<bool>& sortingOrders() const { return sortingOrders_; }
+
+private:
+    PlanNodePtr source_;
+    int32_t count_;
+    std::vector<std::string> sortingKeys_;
+    std::vector<bool> sortingOrders_;
+    bool isPartial_;
+};
+
+// HashJoinNode
+class HashJoinNode : public PlanNode {
+public:
+    HashJoinNode(PlanNodeId id, PlanNodePtr left, PlanNodePtr right, 
+                 std::vector<std::string> leftKeys, std::vector<std::string> rightKeys,
+                 std::vector<std::string> outputColumns)
+        : PlanNode(std::move(id)), left_(std::move(left)), right_(std::move(right)),
+          leftKeys_(std::move(leftKeys)), rightKeys_(std::move(rightKeys)), outputColumns_(std::move(outputColumns)) {
+          
+          // Compute output type based on outputColumns
+          // Need to find type of each output column from left or right
+          std::vector<std::string> names = outputColumns_;
+          std::vector<TypePtr> types;
+          
+          auto leftType = left_->outputType();
+          auto rightType = right_->outputType();
+          
+          for (const auto& col : outputColumns_) {
+              bool found = false;
+              for(size_t i=0; i<leftType->size(); ++i) {
+                  if (leftType->nameOf(i) == col) {
+                      types.push_back(leftType->childAt(i));
+                      found = true; break;
+                  }
+              }
+              if (!found) {
+                  for(size_t i=0; i<rightType->size(); ++i) {
+                      if (rightType->nameOf(i) == col) {
+                          types.push_back(rightType->childAt(i));
+                          found = true; break;
+                      }
+                  }
+              }
+              if (!found) throw std::runtime_error("Column not found in join inputs: " + col);
+          }
+          
+          outputType_ = std::dynamic_pointer_cast<const RowType>(RowType::create(names, types));
+    }
+    
+    const RowTypePtr& outputType() const override { return outputType_; }
+    std::vector<PlanNodePtr> sources() const override { return {left_, right_}; }
+    std::string toString() const override { return "HashJoin"; }
+    
+    const PlanNodePtr& left() const { return left_; }
+    const PlanNodePtr& right() const { return right_; }
+    const std::vector<std::string>& leftKeys() const { return leftKeys_; }
+    const std::vector<std::string>& rightKeys() const { return rightKeys_; }
+
+private:
+    PlanNodePtr left_;
+    PlanNodePtr right_;
+    std::vector<std::string> leftKeys_;
+    std::vector<std::string> rightKeys_;
+    std::vector<std::string> outputColumns_;
+    RowTypePtr outputType_;
+};
+
 } // namespace facebook::velox::core
