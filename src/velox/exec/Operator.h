@@ -13,6 +13,12 @@
 
 namespace facebook::velox::exec {
 
+class SourceState {
+public:
+    virtual ~SourceState() = default;
+    virtual RowVectorPtr next() = 0;
+};
+
 class Operator {
 public:
     Operator(core::PlanNodePtr planNode) : planNode_(planNode) {}
@@ -37,18 +43,33 @@ protected:
 
 class ValuesOperator : public Operator {
 public:
-    ValuesOperator(core::PlanNodePtr node) : Operator(node) {
-        auto valuesNode = std::dynamic_pointer_cast<const core::ValuesNode>(node);
-        values_ = valuesNode->values();
+    ValuesOperator(core::PlanNodePtr node, std::shared_ptr<SourceState> state = nullptr)
+        : Operator(node), state_(std::move(state)) {
+        if (!state_) {
+            auto valuesNode = std::dynamic_pointer_cast<const core::ValuesNode>(node);
+            values_ = valuesNode->values();
+        }
     }
     void addInput(RowVectorPtr input) override {}
     void noMoreInput() override { noMoreInput_ = true; }
-    RowVectorPtr getOutput() override { if (current_ < values_.size()) return values_[current_++]; return nullptr; }
-    bool isFinished() override { return current_ >= values_.size(); }
+    RowVectorPtr getOutput() override {
+        if (state_) {
+            auto batch = state_->next();
+            if (!batch) {
+                finished_ = true;
+            }
+            return batch;
+        }
+        if (current_ < values_.size()) return values_[current_++];
+        return nullptr;
+    }
+    bool isFinished() override { return state_ ? finished_ : current_ >= values_.size(); }
     bool needsInput() const override { return false; }
 private:
     std::vector<RowVectorPtr> values_;
     size_t current_ = 0;
+    std::shared_ptr<SourceState> state_;
+    bool finished_ = false;
 };
 
 class TableWriteOperator : public Operator {
@@ -76,7 +97,8 @@ private:
 
 class FileScanOperator : public Operator {
 public:
-    FileScanOperator(core::PlanNodePtr node, core::ExecCtx* ctx) : Operator(node), ctx_(ctx) {
+    FileScanOperator(core::PlanNodePtr node, core::ExecCtx* ctx, std::shared_ptr<SourceState> state = nullptr)
+        : Operator(node), ctx_(ctx), state_(std::move(state)) {
         auto scanNode = std::dynamic_pointer_cast<const core::FileScanNode>(node);
         path_ = scanNode->path();
         expectedType_ = scanNode->outputType();
@@ -87,19 +109,35 @@ public:
         if (produced_) {
             return nullptr;
         }
-        auto data = dwio::common::RowVectorFile::read(ctx_->pool(), path_);
+        RowVectorPtr data;
+        if (state_) {
+            data = state_->next();
+            if (!data) {
+                finished_ = true;
+            }
+        } else {
+            data = dwio::common::RowVectorFile::read(ctx_->pool(), path_);
+        }
+        if (!data) {
+            produced_ = true;
+            return nullptr;
+        }
         if (expectedType_ && data && !expectedType_->equivalent(*data->type())) {
             VELOX_FAIL("File schema does not match expected output type");
         }
-        produced_ = true;
+        if (!state_) {
+            produced_ = true;
+        }
         return data;
     }
-    bool isFinished() override { return produced_; }
+    bool isFinished() override { return state_ ? finished_ : produced_; }
 private:
     core::ExecCtx* ctx_;
     std::string path_;
     RowTypePtr expectedType_;
     bool produced_ = false;
+    std::shared_ptr<SourceState> state_;
+    bool finished_ = false;
 };
 
 class OrderByOperator : public Operator {

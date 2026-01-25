@@ -7,6 +7,7 @@ add_library(velox_common
     velox/dwio/csv/CsvReader.cpp
     velox/dwio/common/ReaderFactory.cpp
     velox/dwio/csv/RegisterCsvReader.cpp
+    velox/exec/Task.cpp
     velox/expression/Expr.cpp
     velox/expression/FunctionRegistry.cpp
     velox/functions/prestosql/Arithmetic.cpp
