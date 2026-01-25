@@ -2,6 +2,7 @@
 
 #include "velox/vector/SimpleVector.h"
 #include "velox/buffer/Buffer.h"
+#include "velox/type/StringView.h"
 
 namespace facebook::velox {
 
@@ -27,6 +28,16 @@ public:
     
     T valueAt(vector_size_t index) const override {
         return rawValues_[index];
+    }
+    
+    void copy(const BaseVector* source, vector_size_t sourceIndex, vector_size_t targetIndex) override {
+        auto* srcVec = static_cast<const FlatVector<T>*>(source);
+        const_cast<T*>(rawValues_)[targetIndex] = srcVec->valueAt(sourceIndex);
+        
+        if constexpr (std::is_same_v<T, StringView>) {
+             // For demo simplicity, we assume string data is either inline or guaranteed to outlive
+             // In full implementation, we would copy external data to stringBuffers_
+        }
     }
     
     const BufferPtr& values() const { return values_; }

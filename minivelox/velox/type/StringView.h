@@ -67,6 +67,22 @@ struct StringView {
       return std::string(data(), size_);
   }
 
+  int compare(const StringView& other) const {
+      int cmp = std::memcmp(data(), other.data(), std::min(size_, other.size_));
+      if (cmp != 0) return cmp;
+      if (size_ < other.size_) return -1;
+      if (size_ > other.size_) return 1;
+      return 0;
+  }
+
+  bool operator<(const StringView& other) const {
+      return compare(other) < 0;
+  }
+  
+  bool operator>(const StringView& other) const {
+      return compare(other) > 0;
+  }
+
   bool operator==(const StringView& other) const {
       if (size_ != other.size_) return false;
       if (size_ == 0) return true;

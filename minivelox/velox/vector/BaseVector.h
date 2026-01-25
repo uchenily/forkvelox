@@ -45,6 +45,10 @@ public:
     // Virtuals
     virtual std::string toString(vector_size_t index) const = 0;
     
+    virtual int32_t compare(const BaseVector* other, vector_size_t index, vector_size_t otherIndex) const = 0;
+    
+    virtual void copy(const BaseVector* source, vector_size_t sourceIndex, vector_size_t targetIndex) = 0;
+
     virtual std::string toString(vector_size_t start, vector_size_t end) const {
         std::string s;
         for(vector_size_t i = start; i < end && i < length_; ++i) {

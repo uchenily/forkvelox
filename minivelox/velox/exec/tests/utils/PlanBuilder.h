@@ -30,7 +30,7 @@ public:
     }
     
     PlanBuilder& topN(const std::vector<std::string>& keys, int count, bool isPartial) {
-        root_ = std::make_shared<core::TopNNode>(generator_->next(), root_, count);
+        root_ = std::make_shared<core::TopNNode>(generator_->next(), root_, count, keys);
         return *this;
     }
 

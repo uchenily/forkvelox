@@ -43,6 +43,10 @@ private:
             ops.push_back(std::make_shared<ValuesOperator>(node));
         } else if (auto filter = std::dynamic_pointer_cast<const core::FilterNode>(node)) {
             ops.push_back(std::make_shared<FilterOperator>(node, ctx));
+        } else if (auto orderBy = std::dynamic_pointer_cast<const core::OrderByNode>(node)) {
+            ops.push_back(std::make_shared<OrderByOperator>(node));
+        } else if (auto topN = std::dynamic_pointer_cast<const core::TopNNode>(node)) {
+            ops.push_back(std::make_shared<TopNOperator>(node));
         } else if (auto scan = std::dynamic_pointer_cast<const core::TableScanNode>(node)) {
             // Scan returns nothing for now as we don't have data source
             ops.push_back(std::make_shared<ValuesOperator>(

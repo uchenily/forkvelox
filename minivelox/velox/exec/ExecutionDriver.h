@@ -35,6 +35,33 @@ public:
                  if (!source->isFinished()) {
                  } else {
                      std::cout << "[Driver] Source finished." << std::endl;
+                     // Propagate finish
+                     for (size_t i = 1; i < operators_.size(); ++i) {
+                         // Need to cast to specific operators to call noMoreInput?
+                         // Ideally Operator has a virtual noMoreInput().
+                         // minivelox stub Operator didn't have it generally on base.
+                         // But specialized ones do.
+                         // I will dynamic_cast for now or update Operator.h
+                         if (auto op = std::dynamic_pointer_cast<OrderByOperator>(operators_[i])) op->noMoreInput();
+                         if (auto op = std::dynamic_pointer_cast<TopNOperator>(operators_[i])) op->noMoreInput();
+                         if (auto op = std::dynamic_pointer_cast<FilterOperator>(operators_[i])) op->noMoreInput();
+                     }
+                     
+                     // Now flush pipeline
+                     progress = true; // Retry loop to flush buffers
+                     while(progress) {
+                         progress = false;
+                         for (size_t i = 1; i < operators_.size(); ++i) {
+                             auto batch = operators_[i]->getOutput();
+                             if (batch) {
+                                 std::cout << "[Driver] Flushed batch from " << operators_[i]->planNode()->toString() << std::endl;
+                                 if (i == operators_.size() - 1) results.push_back(batch);
+                                 else operators_[i+1]->addInput(batch);
+                                 progress = true;
+                             }
+                         }
+                     }
+                     break; // Done
                  }
             }
         }

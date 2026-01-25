@@ -33,6 +33,23 @@ public:
     
     vector_size_t childrenSize() const { return children_.size(); }
 
+    int32_t compare(const BaseVector* other, vector_size_t index, vector_size_t otherIndex) const override {
+        // Compare child by child
+        auto* otherRow = static_cast<const RowVector*>(other);
+        for(size_t i=0; i<children_.size(); ++i) {
+            int cmp = children_[i]->compare(otherRow->children_[i].get(), index, otherIndex);
+            if (cmp != 0) return cmp;
+        }
+        return 0;
+    }
+
+    void copy(const BaseVector* source, vector_size_t sourceIndex, vector_size_t targetIndex) override {
+        auto* srcRow = static_cast<const RowVector*>(source);
+        for(size_t i=0; i<children_.size(); ++i) {
+            children_[i]->copy(srcRow->children_[i].get(), sourceIndex, targetIndex);
+        }
+    }
+
 private:
     std::vector<VectorPtr> children_;
 };

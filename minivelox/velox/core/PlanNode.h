@@ -71,25 +71,31 @@ private:
 class OrderByNode : public PlanNode {
 public:
     OrderByNode(PlanNodeId id, PlanNodePtr source, std::vector<std::string> keys)
-        : id_(id), source_(source) {}
+        : id_(id), source_(source), keys_(std::move(keys)) {}
     const PlanNodeId& id() const override { return id_; }
     std::string toString() const override { return "OrderBy"; }
     std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {source_}; }
+    const std::vector<std::string>& keys() const { return keys_; }
 private:
     PlanNodeId id_;
     PlanNodePtr source_;
+    std::vector<std::string> keys_;
 };
 
 class TopNNode : public PlanNode {
 public:
-    TopNNode(PlanNodeId id, PlanNodePtr source, int count)
-        : id_(id), source_(source) {}
+    TopNNode(PlanNodeId id, PlanNodePtr source, int count, std::vector<std::string> keys)
+        : id_(id), source_(source), count_(count), keys_(std::move(keys)) {}
     const PlanNodeId& id() const override { return id_; }
     std::string toString() const override { return "TopN"; }
     std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {source_}; }
+    int count() const { return count_; }
+    const std::vector<std::string>& keys() const { return keys_; }
 private:
     PlanNodeId id_;
     PlanNodePtr source_;
+    int count_;
+    std::vector<std::string> keys_;
 };
 
 class TableScanNode : public PlanNode {
