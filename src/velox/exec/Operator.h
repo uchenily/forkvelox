@@ -3,7 +3,9 @@
 #include "velox/vector/FlatVector.h"
 #include "velox/type/StringView.h"
 #include "velox/core/PlanNode.h"
+#include "velox/common/base/Exceptions.h"
 #include "velox/expression/Expr.h"
+#include "velox/io/RowVectorFile.h"
 #include <iostream>
 #include <algorithm>
 #include <sstream>
@@ -47,6 +49,57 @@ public:
 private:
     std::vector<RowVectorPtr> values_;
     size_t current_ = 0;
+};
+
+class TableWriteOperator : public Operator {
+public:
+    TableWriteOperator(core::PlanNodePtr node) : Operator(node) {
+        auto writeNode = std::dynamic_pointer_cast<const core::TableWriteNode>(node);
+        path_ = writeNode->path();
+    }
+    bool needsInput() const override { return !noMoreInput_; }
+    void addInput(RowVectorPtr input) override {
+        if (!input || input->size() == 0) {
+            return;
+        }
+        io::RowVectorFile::append(*input, path_, !wroteHeader_);
+        wroteHeader_ = true;
+    }
+    void noMoreInput() override { noMoreInput_ = true; finished_ = true; }
+    RowVectorPtr getOutput() override { return nullptr; }
+    bool isFinished() override { return finished_; }
+private:
+    std::string path_;
+    bool wroteHeader_ = false;
+    bool finished_ = false;
+};
+
+class FileScanOperator : public Operator {
+public:
+    FileScanOperator(core::PlanNodePtr node, core::ExecCtx* ctx) : Operator(node), ctx_(ctx) {
+        auto scanNode = std::dynamic_pointer_cast<const core::FileScanNode>(node);
+        path_ = scanNode->path();
+        expectedType_ = scanNode->outputType();
+    }
+    bool needsInput() const override { return false; }
+    void addInput(RowVectorPtr input) override {}
+    RowVectorPtr getOutput() override {
+        if (produced_) {
+            return nullptr;
+        }
+        auto data = io::RowVectorFile::read(ctx_->pool(), path_);
+        if (expectedType_ && data && !expectedType_->equivalent(*data->type())) {
+            VELOX_FAIL("File schema does not match expected output type");
+        }
+        produced_ = true;
+        return data;
+    }
+    bool isFinished() override { return produced_; }
+private:
+    core::ExecCtx* ctx_;
+    std::string path_;
+    RowTypePtr expectedType_;
+    bool produced_ = false;
 };
 
 class OrderByOperator : public Operator {

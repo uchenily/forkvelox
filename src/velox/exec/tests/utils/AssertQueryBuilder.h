@@ -105,6 +105,10 @@ private:
     void buildPipeline(core::PlanNodePtr node, std::vector<std::shared_ptr<Operator>>& ops, core::ExecCtx* ctx) {
         if (auto values = std::dynamic_pointer_cast<const core::ValuesNode>(node)) {
             ops.push_back(std::make_shared<ValuesOperator>(node));
+        } else if (std::dynamic_pointer_cast<const core::FileScanNode>(node)) {
+            ops.push_back(std::make_shared<FileScanOperator>(node, ctx));
+        } else if (std::dynamic_pointer_cast<const core::TableWriteNode>(node)) {
+            ops.push_back(std::make_shared<TableWriteOperator>(node));
         } else if (auto filter = std::dynamic_pointer_cast<const core::FilterNode>(node)) {
             ops.push_back(std::make_shared<FilterOperator>(node, ctx));
         } else if (auto agg = std::dynamic_pointer_cast<const core::AggregationNode>(node)) {

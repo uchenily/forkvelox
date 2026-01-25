@@ -28,6 +28,11 @@ public:
         root_ = std::make_shared<core::OrderByNode>(generator_->next(), root_, keys);
         return *this;
     }
+
+    PlanBuilder& tableWrite(const std::string& path) {
+        root_ = std::make_shared<core::TableWriteNode>(generator_->next(), root_, path);
+        return *this;
+    }
     
     PlanBuilder& topN(const std::vector<std::string>& keys, int count, bool isPartial) {
         root_ = std::make_shared<core::TopNNode>(generator_->next(), root_, count, keys);
@@ -38,6 +43,11 @@ public:
         parse::DuckSqlExpressionsParser parser;
         auto typedExpr = parser.parseExpr(expr);
         root_ = std::make_shared<core::FilterNode>(generator_->next(), root_, typedExpr);
+        return *this;
+    }
+
+    PlanBuilder& tableScan(const RowTypePtr& rowType, const std::string& path) {
+        root_ = std::make_shared<core::FileScanNode>(generator_->next(), rowType, path);
         return *this;
     }
 

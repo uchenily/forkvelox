@@ -131,4 +131,33 @@ private:
     PlanNodePtr build_;
 };
 
+class FileScanNode : public PlanNode {
+public:
+    FileScanNode(PlanNodeId id, RowTypePtr outputType, std::string path)
+        : id_(id), outputType_(std::move(outputType)), path_(std::move(path)) {}
+    const PlanNodeId& id() const override { return id_; }
+    std::string toString() const override { return "FileScan"; }
+    std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {}; }
+    const RowTypePtr& outputType() const { return outputType_; }
+    const std::string& path() const { return path_; }
+private:
+    PlanNodeId id_;
+    RowTypePtr outputType_;
+    std::string path_;
+};
+
+class TableWriteNode : public PlanNode {
+public:
+    TableWriteNode(PlanNodeId id, PlanNodePtr source, std::string path)
+        : id_(id), source_(source), path_(std::move(path)) {}
+    const PlanNodeId& id() const override { return id_; }
+    std::string toString() const override { return "TableWrite"; }
+    std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {source_}; }
+    const std::string& path() const { return path_; }
+private:
+    PlanNodeId id_;
+    PlanNodePtr source_;
+    std::string path_;
+};
+
 }
