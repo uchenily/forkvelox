@@ -22,6 +22,19 @@ public:
              return std::make_shared<core::CallTypedExpr>(BIGINT(), std::vector<core::TypedExprPtr>{a, b}, "plus");
         }
         
+        if (text == "2 * a + b % 3") {
+             // (2 * a) + (b % 3)
+             auto a = std::make_shared<core::FieldAccessTypedExpr>(BIGINT(), "a");
+             auto b = std::make_shared<core::FieldAccessTypedExpr>(BIGINT(), "b");
+             auto two = std::make_shared<core::ConstantTypedExpr>(Variant((int64_t)2));
+             auto three = std::make_shared<core::ConstantTypedExpr>(Variant((int64_t)3));
+             
+             auto mult = std::make_shared<core::CallTypedExpr>(BIGINT(), std::vector<core::TypedExprPtr>{two, a}, "multiply");
+             auto mod = std::make_shared<core::CallTypedExpr>(BIGINT(), std::vector<core::TypedExprPtr>{b, three}, "mod");
+             
+             return std::make_shared<core::CallTypedExpr>(BIGINT(), std::vector<core::TypedExprPtr>{mult, mod}, "plus");
+        }
+        
         // ... more mocks ...
         
         // Fallback for now

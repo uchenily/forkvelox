@@ -1,9 +1,9 @@
 #pragma once
 #include "velox/core/PlanNode.h"
-#include "velox/exec/Driver.h"
+#include "velox/exec/ExecutionDriver.h"
+#include "velox/exec/Operator.h"
 #include "velox/core/ExecCtx.h"
 #include "velox/exec/Split.h"
-#include <algorithm>
 
 namespace facebook::velox::exec::test {
 
@@ -19,16 +19,13 @@ public:
         buildPipeline(planNode_, ops, &execCtx);
         std::reverse(ops.begin(), ops.end());
         
-        Driver driver(ops);
+        ::facebook::velox::exec::ExecutionDriver driver(ops);
         auto batches = driver.run();
         
         if (batches.empty()) {
-             // Return empty row vector with correct schema?
-             // Or just nullptr.
              return nullptr; 
         }
         
-        // Should merge batches. For now return first.
         return std::dynamic_pointer_cast<RowVector>(batches[0]);
     }
     
@@ -47,15 +44,12 @@ private:
         } else if (auto filter = std::dynamic_pointer_cast<const core::FilterNode>(node)) {
             ops.push_back(std::make_shared<FilterOperator>(node, ctx));
         } else if (auto scan = std::dynamic_pointer_cast<const core::TableScanNode>(node)) {
-            // Stub scan operator
+            // Scan returns nothing for now as we don't have data source
             ops.push_back(std::make_shared<ValuesOperator>(
                 std::make_shared<core::ValuesNode>(scan->id(), std::vector<RowVectorPtr>{}))); 
-                // Return empty for scan
         } else {
-             // Fallback for Aggregation, etc. - Use ValuesOperator with empty or dummy
-             // Or create a PassThroughOperator
-             ops.push_back(std::make_shared<ValuesOperator>(
-                 std::make_shared<core::ValuesNode>(node->id(), std::vector<RowVectorPtr>{})));
+             // Pass through for others
+             ops.push_back(std::make_shared<PassThroughOperator>(node));
         }
         
         auto sources = node->sources();

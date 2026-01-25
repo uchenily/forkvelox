@@ -3,6 +3,7 @@
 #include "velox/expression/VectorFunction.h"
 #include "velox/vector/FlatVector.h"
 #include "velox/vector/ComplexVector.h"
+#include <sstream>
 
 namespace facebook::velox::exec {
 
@@ -85,6 +86,54 @@ public:
     }
 };
 
+class MultiplyFunction : public VectorFunction {
+public:
+    void apply(const SelectivityVector& rows, 
+               std::vector<VectorPtr>& args, 
+               const TypePtr& outputType,
+               EvalCtx& context, 
+               VectorPtr& result) const override {
+        // Simplified: assume args[0] is constant 2, args[1] is vector 'a' OR both vectors
+        // The parser stub will produce Constant(2) and Field(a).
+        // ConstantExpr evaluates to FlatVector(filled).
+        // So both are vectors.
+        auto left = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[0]);
+        auto right = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[1]);
+        
+        auto flat = std::make_shared<FlatVector<int64_t>>(
+                context.pool(), BIGINT(), nullptr, rows.size(), 
+                AlignedBuffer::allocate(rows.size() * sizeof(int64_t), context.pool()));
+        auto* raw = flat->mutableRawValues();
+        
+        rows.applyToSelected([&](vector_size_t i) {
+             raw[i] = left->valueAt(i) * right->valueAt(i);
+        });
+        result = flat;
+    }
+};
+
+class ModFunction : public VectorFunction {
+public:
+    void apply(const SelectivityVector& rows, 
+               std::vector<VectorPtr>& args, 
+               const TypePtr& outputType,
+               EvalCtx& context, 
+               VectorPtr& result) const override {
+        auto left = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[0]);
+        auto right = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[1]);
+        
+        auto flat = std::make_shared<FlatVector<int64_t>>(
+                context.pool(), BIGINT(), nullptr, rows.size(), 
+                AlignedBuffer::allocate(rows.size() * sizeof(int64_t), context.pool()));
+        auto* raw = flat->mutableRawValues();
+        
+        rows.applyToSelected([&](vector_size_t i) {
+             raw[i] = left->valueAt(i) % right->valueAt(i);
+        });
+        result = flat;
+    }
+};
+
 class CallExpr : public Expr {
 public:
     CallExpr(std::string name, std::vector<ExprPtr> inputs, std::shared_ptr<const Type> type)
@@ -101,8 +150,13 @@ public:
         // Dispatch
         if (name_ == "plus") {
             PlusFunction().apply(rows, args, type_, context, result);
+        } else if (name_ == "multiply") {
+            MultiplyFunction().apply(rows, args, type_, context, result);
+        } else if (name_ == "mod") {
+            ModFunction().apply(rows, args, type_, context, result);
         } else {
-             VELOX_NYI("Function " + name_);
+             // For strings demo, just return null or stub
+             VELOX_NYI("Function {}", name_);
         }
     }
     std::shared_ptr<const Type> type() const override { return type_; }

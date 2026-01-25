@@ -1,6 +1,7 @@
 #pragma once
 
 #include "velox/vector/BaseVector.h"
+#include <sstream>
 
 namespace facebook::velox {
 
@@ -8,6 +9,7 @@ template <typename T>
 class SimpleVector : public BaseVector {
 public:
     using BaseVector::BaseVector;
+    using BaseVector::toString;
     
     virtual T valueAt(vector_size_t index) const = 0;
     

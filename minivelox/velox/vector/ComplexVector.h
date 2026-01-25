@@ -6,6 +6,8 @@ namespace facebook::velox {
 
 class RowVector : public BaseVector {
 public:
+    using BaseVector::toString;
+
     RowVector(memory::MemoryPool* pool,
               std::shared_ptr<const Type> type,
               BufferPtr nulls,

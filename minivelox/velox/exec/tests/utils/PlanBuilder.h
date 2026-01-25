@@ -2,6 +2,7 @@
 #include "velox/core/PlanNode.h"
 #include "velox/core/Expressions.h"
 #include "velox/parse/ExpressionsParser.h"
+#include "velox/tpch/gen/TpchGen.h"
 #include <memory>
 
 namespace facebook::velox::exec::test {

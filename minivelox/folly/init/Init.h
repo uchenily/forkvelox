@@ -4,7 +4,6 @@ namespace folly {
     namespace init {
         struct Init {
              Init(int* argc, char*** argv, bool removeFlags = true) {}
-             Init(int* argc, char** argv[], bool removeFlags = true) {}
         };
     }
 }

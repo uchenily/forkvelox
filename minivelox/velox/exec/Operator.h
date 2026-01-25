@@ -91,5 +91,24 @@ private:
     bool finished_ = false;
 };
 
-// ... Stubs for others
+class PassThroughOperator : public Operator {
+public:
+    PassThroughOperator(core::PlanNodePtr node) : Operator(node) {}
+    
+    void addInput(RowVectorPtr input) override {
+        input_ = input;
+    }
+    
+    RowVectorPtr getOutput() override {
+        auto res = input_;
+        input_ = nullptr;
+        return res;
+    }
+    
+    bool isFinished() override { return false; } // Never finishes on its own
+    
+private:
+    RowVectorPtr input_;
+};
+
 }

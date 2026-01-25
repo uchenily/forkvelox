@@ -5,6 +5,7 @@
 #include "velox/core/ITypedExpr.h"
 #include "velox/expression/EvalCtx.h"
 #include "velox/vector/BaseVector.h"
+#include "velox/vector/SelectivityVector.h"
 
 namespace facebook::velox::exec {
 
