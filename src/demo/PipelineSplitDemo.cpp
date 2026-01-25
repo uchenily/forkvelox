@@ -53,6 +53,7 @@ int main(int argc, char** argv) {
         pool.get(), rowType, nullptr, batchSize, std::vector<VectorPtr>{vector}));
   }
 
+  // multi-pipelines
   auto plan = PlanBuilder()
                   .values(batches)
                   .filter("my_col % 2 == 1")

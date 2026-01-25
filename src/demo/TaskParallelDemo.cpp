@@ -9,6 +9,8 @@
 #include "velox/common/memory/Memory.h"
 #include "velox/exec/Task.h"
 #include "velox/exec/tests/utils/PlanBuilder.h"
+#include "velox/functions/prestosql/registration/RegistrationFunctions.h"
+#include "velox/parse/TypeResolver.h"
 #include "velox/type/Type.h"
 #include "velox/vector/ComplexVector.h"
 #include "velox/vector/FlatVector.h"
@@ -17,12 +19,15 @@ using namespace facebook::velox;
 using namespace facebook::velox::exec;
 using namespace facebook::velox::exec::test;
 
-// Demo: run a Values pipeline with multiple Drivers in parallel via Task.
+// Demo: run a single pipeline (Values -> Filter) with multiple Drivers.
 int main(int argc, char** argv) {
   folly::init::Init init{&argc, &argv, false};
 
   memory::initializeMemoryManager(memory::MemoryManager::Options{});
   auto pool = memory::defaultMemoryPool();
+
+  functions::prestosql::registerAllScalarFunctions();
+  parse::registerTypeResolver();
 
   const auto rowType = ROW({"my_col"}, {BIGINT()});
   const vector_size_t batchSize = 6;
@@ -45,7 +50,11 @@ int main(int argc, char** argv) {
         pool.get(), rowType, nullptr, batchSize, std::vector<VectorPtr>{vector}));
   }
 
-  auto plan = PlanBuilder().values(batches).orderBy({"my_col"}, false).planNode();
+  // only one pipeline
+  auto plan = PlanBuilder()
+                  .values(batches)
+                  .filter("my_col % 2 == 0")
+                  .planNode();
   auto queryCtx = core::QueryCtx::create();
 
   auto task = Task::create(
