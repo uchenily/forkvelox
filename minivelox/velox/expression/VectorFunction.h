@@ -1,5 +1,6 @@
 #pragma once
 #include "velox/vector/BaseVector.h"
+#include "velox/vector/SelectivityVector.h"
 #include "velox/expression/EvalCtx.h"
 
 namespace facebook::velox::exec {

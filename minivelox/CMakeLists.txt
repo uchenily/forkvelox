@@ -16,11 +16,13 @@ find_package(Threads REQUIRED)
 # Define the library
 
 add_library(velox_common
-
     velox/common/memory/Memory.cpp
-
     velox/expression/Expr.cpp
-
+    velox/expression/FunctionRegistry.cpp
+    velox/functions/prestosql/Arithmetic.cpp
+    velox/functions/prestosql/StringFunctions.cpp
+    velox/functions/prestosql/Comparison.cpp
+    velox/functions/prestosql/registration/RegistrationFunctions.cpp
 )
 
 
