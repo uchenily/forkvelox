@@ -80,6 +80,8 @@ std::shared_ptr<FlatVector<T>> makeFlatVector(const std::vector<T>& data, memory
     TypePtr type;
     if constexpr (std::is_same_v<T, int32_t>) type = IntegerType::create();
     else if constexpr (std::is_same_v<T, int64_t>) type = BigIntType::create();
+    else if constexpr (std::is_same_v<T, double>) type = DoubleType::create();
+    else if constexpr (std::is_same_v<T, uint8_t>) type = IntegerType::create(); // Hack for bool/byte
     else if constexpr (std::is_same_v<T, StringView>) type = VarcharType::create();
     else throw std::runtime_error("Unsupported type");
 

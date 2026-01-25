@@ -55,6 +55,13 @@ public:
     static TypePtr create() { return std::make_shared<BigIntType>(); }
 };
 
+class DoubleType : public Type {
+public:
+    TypeKind kind() const override { return TypeKind::DOUBLE; }
+    std::string toString() const override { return "DOUBLE"; }
+    static TypePtr create() { return std::make_shared<DoubleType>(); }
+};
+
 class VarcharType : public Type {
 public:
     TypeKind kind() const override { return TypeKind::VARCHAR; }
@@ -101,6 +108,7 @@ template <TypeKind KIND> struct TypeTraits {};
 
 template <> struct TypeTraits<TypeKind::INTEGER> { using NativeType = int32_t; };
 template <> struct TypeTraits<TypeKind::BIGINT> { using NativeType = int64_t; };
-template <> struct TypeTraits<TypeKind::VARCHAR> { using NativeType = std::string; }; // Simplified, Velox uses StringView
+template <> struct TypeTraits<TypeKind::DOUBLE> { using NativeType = double; };
+template <> struct TypeTraits<TypeKind::VARCHAR> { using NativeType = std::string; }; 
 
 } // namespace facebook::velox
