@@ -1,4 +1,4 @@
-#include "velox/io/CsvReader.h"
+#include "velox/dwio/csv/CsvReader.h"
 
 #include <algorithm>
 #include <cctype>
@@ -11,7 +11,7 @@
 #include "velox/common/base/Exceptions.h"
 #include "velox/vector/FlatVector.h"
 
-namespace facebook::velox::io {
+namespace facebook::velox::dwio::csv {
 namespace {
 
 std::string trim(std::string value) {
@@ -127,16 +127,19 @@ RowVectorPtr buildRowVector(
 } // namespace
 
 CsvReader::CsvReader(
-    std::string path,
+    std::shared_ptr<ReadFile> file,
     memory::MemoryPool* pool,
     CsvReadOptions options)
-    : path_(std::move(path)), pool_(pool), options_(options) {
-  std::ifstream in(path_);
-  VELOX_CHECK(in.is_open(), "Failed to open file: {}", path_);
+    : file_(std::move(file)), pool_(pool), options_(options) {
+  VELOX_CHECK(file_ != nullptr, "ReadFile must not be null");
+  auto input = file_->open();
 
   std::string line;
   if (options_.hasHeader) {
-    VELOX_CHECK(std::getline(in, line), "Missing header line in {}", path_);
+    VELOX_CHECK(
+        std::getline(*input, line),
+        "Missing header line in {}",
+        file_->path());
   } else {
     VELOX_FAIL("CSV reader requires header line with column names");
   }
@@ -144,7 +147,10 @@ CsvReader::CsvReader(
 
   std::vector<TypePtr> types;
   if (options_.hasTypes) {
-    VELOX_CHECK(std::getline(in, line), "Missing types line in {}", path_);
+    VELOX_CHECK(
+        std::getline(*input, line),
+        "Missing types line in {}",
+        file_->path());
     auto typeNames = splitCsv(line, options_.delimiter);
     bool allTypes = typeNames.size() == names.size();
     if (allTypes) {
@@ -162,8 +168,10 @@ CsvReader::CsvReader(
       if (options_.inferTypesIfMissing) {
         types.assign(names.size(), VARCHAR());
         options_.hasTypes = false;
+        firstDataLine_ = line;
+        hasFirstDataLine_ = true;
       } else {
-        VELOX_FAIL("Missing or invalid types line in {}", path_);
+        VELOX_FAIL("Missing or invalid types line in {}", file_->path());
       }
     }
   } else {
@@ -174,31 +182,42 @@ CsvReader::CsvReader(
 }
 
 std::unique_ptr<CsvRowReader> CsvReader::createRowReader() const {
-  return std::make_unique<CsvRowReader>(path_, rowType_, pool_, options_);
+  return std::make_unique<CsvRowReader>(
+      file_, rowType_, pool_, options_, firstDataLine_, hasFirstDataLine_);
 }
 
 CsvRowReader::CsvRowReader(
-    std::string path,
+    std::shared_ptr<ReadFile> file,
     RowTypePtr rowType,
     memory::MemoryPool* pool,
-    CsvReadOptions options)
-    : path_(std::move(path)),
+    CsvReadOptions options,
+    std::string firstDataLine,
+    bool hasFirstDataLine)
+    : file_(std::move(file)),
       rowType_(std::move(rowType)),
       pool_(pool),
-      options_(options) {}
+      options_(options),
+      firstDataLine_(std::move(firstDataLine)),
+      hasFirstDataLine_(hasFirstDataLine) {}
 
 void CsvRowReader::ensureInitialized() {
   if (initialized_) {
     return;
   }
-  file_ = std::make_unique<std::ifstream>(path_);
-  VELOX_CHECK(file_->is_open(), "Failed to open file: {}", path_);
+  VELOX_CHECK(file_ != nullptr, "ReadFile must not be null");
+  input_ = file_->open();
   std::string line;
   if (options_.hasHeader) {
-    VELOX_CHECK(std::getline(*file_, line), "Missing header line in {}", path_);
+    VELOX_CHECK(
+        std::getline(*input_, line),
+        "Missing header line in {}",
+        file_->path());
   }
   if (options_.hasTypes) {
-    VELOX_CHECK(std::getline(*file_, line), "Missing types line in {}", path_);
+    VELOX_CHECK(
+        std::getline(*input_, line),
+        "Missing types line in {}",
+        file_->path());
   }
   initialized_ = true;
 }
@@ -222,8 +241,14 @@ bool CsvRowReader::next(size_t batchSize, RowVectorPtr& out) {
 
   size_t rows = 0;
   std::string line;
-  while (rows < batchSize && std::getline(*file_, line)) {
+  if (hasFirstDataLine_) {
+    line = firstDataLine_;
+    hasFirstDataLine_ = false;
+  }
+  while (rows < batchSize &&
+         (!line.empty() || std::getline(*input_, line))) {
     if (line.empty()) {
+      line.clear();
       continue;
     }
     auto values = splitCsv(line, options_.delimiter);
@@ -243,6 +268,7 @@ bool CsvRowReader::next(size_t batchSize, RowVectorPtr& out) {
       }
     }
     ++rows;
+    line.clear();
   }
 
   if (rows == 0) {
@@ -255,4 +281,4 @@ bool CsvRowReader::next(size_t batchSize, RowVectorPtr& out) {
   return true;
 }
 
-} // namespace facebook::velox::io
+} // namespace facebook::velox::dwio::csv

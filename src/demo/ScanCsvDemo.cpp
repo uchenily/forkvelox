@@ -14,7 +14,7 @@ using namespace facebook::velox;
 // A temporary program that reads from a CSV file and prints its content.
 // CSV format:
 //   1) Header line: col_name,col_name,...
-//   2) Types line: BIGINT,INTEGER,VARCHAR,...
+//   2) Optional types line: BIGINT,INTEGER,VARCHAR,...
 //   3) Data lines: value,value,...
 // Usage: ScanCsvDemo {csv_file_path}
 int main(int argc, char** argv) {
@@ -37,7 +37,7 @@ int main(int argc, char** argv) {
       dwio::common::getReaderFactory(dwio::common::FileFormat::CSV)
           ->createReader(
               std::make_unique<dwio::common::BufferedInput>(
-                  std::make_shared<dwio::common::LocalReadFile>(filePath),
+                  std::make_shared<LocalReadFile>(filePath),
                   readerOpts.memoryPool()),
               readerOpts);
 

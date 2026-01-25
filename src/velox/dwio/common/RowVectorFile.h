@@ -1,10 +1,10 @@
 #pragma once
 
 #include <string>
-#include "velox/vector/ComplexVector.h"
 #include "velox/common/memory/MemoryPool.h"
+#include "velox/vector/ComplexVector.h"
 
-namespace facebook::velox::io {
+namespace facebook::velox::dwio::common {
 
 class RowVectorFile {
 public:
@@ -13,4 +13,4 @@ public:
   static RowVectorPtr read(memory::MemoryPool* pool, const std::string& path);
 };
 
-} // namespace facebook::velox::io
+} // namespace facebook::velox::dwio::common

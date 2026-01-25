@@ -5,7 +5,7 @@
 #include "velox/core/PlanNode.h"
 #include "velox/common/base/Exceptions.h"
 #include "velox/expression/Expr.h"
-#include "velox/io/RowVectorFile.h"
+#include "velox/dwio/common/RowVectorFile.h"
 #include <iostream>
 #include <algorithm>
 #include <sstream>
@@ -62,7 +62,7 @@ public:
         if (!input || input->size() == 0) {
             return;
         }
-        io::RowVectorFile::append(*input, path_, !wroteHeader_);
+        dwio::common::RowVectorFile::append(*input, path_, !wroteHeader_);
         wroteHeader_ = true;
     }
     void noMoreInput() override { noMoreInput_ = true; finished_ = true; }
@@ -87,7 +87,7 @@ public:
         if (produced_) {
             return nullptr;
         }
-        auto data = io::RowVectorFile::read(ctx_->pool(), path_);
+        auto data = dwio::common::RowVectorFile::read(ctx_->pool(), path_);
         if (expectedType_ && data && !expectedType_->equivalent(*data->type())) {
             VELOX_FAIL("File schema does not match expected output type");
         }

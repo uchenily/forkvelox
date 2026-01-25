@@ -1,4 +1,4 @@
-#include "velox/io/RowVectorFile.h"
+#include "velox/dwio/common/RowVectorFile.h"
 
 #include <algorithm>
 #include <cctype>
@@ -14,7 +14,7 @@
 #include "velox/type/Type.h"
 #include "velox/vector/FlatVector.h"
 
-namespace facebook::velox::io {
+namespace facebook::velox::dwio::common {
 namespace {
 
 std::string trim(std::string value) {
@@ -231,4 +231,4 @@ RowVectorPtr RowVectorFile::read(
       pool, rowType, nullptr, rowCount, std::move(children));
 }
 
-} // namespace facebook::velox::io
+} // namespace facebook::velox::dwio::common

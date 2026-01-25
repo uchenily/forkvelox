@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 
+#include "velox/common/file/FileSystem.h"
 #include "velox/common/memory/MemoryPool.h"
 #include "velox/vector/BaseVector.h"
 
@@ -14,27 +15,19 @@ enum class FileFormat {
   CSV,
 };
 
-class LocalReadFile {
-public:
-  explicit LocalReadFile(std::string path) : path_(std::move(path)) {}
-  const std::string& path() const { return path_; }
-
-private:
-  std::string path_;
-};
-
 class BufferedInput {
 public:
   BufferedInput(
-      std::shared_ptr<LocalReadFile> file,
+      std::shared_ptr<ReadFile> file,
       memory::MemoryPool* pool)
       : file_(std::move(file)), pool_(pool) {}
 
   const std::string& path() const { return file_->path(); }
+  const std::shared_ptr<ReadFile>& file() const { return file_; }
   memory::MemoryPool* memoryPool() const { return pool_; }
 
 private:
-  std::shared_ptr<LocalReadFile> file_;
+  std::shared_ptr<ReadFile> file_;
   memory::MemoryPool* pool_;
 };
 

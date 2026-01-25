@@ -1,14 +1,14 @@
 #include "velox/dwio/csv/RegisterCsvReader.h"
 
 #include "velox/dwio/common/ReaderFactory.h"
-#include "velox/io/CsvReader.h"
+#include "velox/dwio/csv/CsvReader.h"
 
 namespace facebook::velox::dwio::csv {
 namespace {
 
 class CsvRowReaderAdapter : public dwio::common::RowReader {
 public:
-  explicit CsvRowReaderAdapter(std::unique_ptr<io::CsvRowReader> reader)
+  explicit CsvRowReaderAdapter(std::unique_ptr<CsvRowReader> reader)
       : reader_(std::move(reader)) {}
 
   bool next(size_t batchSize, VectorPtr& out) override {
@@ -21,12 +21,12 @@ public:
   }
 
 private:
-  std::unique_ptr<io::CsvRowReader> reader_;
+  std::unique_ptr<CsvRowReader> reader_;
 };
 
 class CsvReaderAdapter : public dwio::common::Reader {
 public:
-  explicit CsvReaderAdapter(std::unique_ptr<io::CsvReader> reader)
+  explicit CsvReaderAdapter(std::unique_ptr<CsvReader> reader)
       : reader_(std::move(reader)) {}
 
   std::unique_ptr<dwio::common::RowReader> createRowReader(
@@ -35,7 +35,7 @@ public:
   }
 
 private:
-  std::unique_ptr<io::CsvReader> reader_;
+  std::unique_ptr<CsvReader> reader_;
 };
 
 class CsvReaderFactory : public dwio::common::ReaderFactory {
@@ -43,9 +43,9 @@ public:
   std::unique_ptr<dwio::common::Reader> createReader(
       std::unique_ptr<dwio::common::BufferedInput> input,
       const dwio::common::ReaderOptions& options) override {
-    io::CsvReadOptions csvOptions;
-    auto reader = std::make_unique<io::CsvReader>(
-        input->path(), options.memoryPool(), csvOptions);
+    CsvReadOptions csvOptions;
+    auto reader = std::make_unique<CsvReader>(
+        input->file(), options.memoryPool(), csvOptions);
     return std::make_unique<CsvReaderAdapter>(
         std::move(reader));
   }

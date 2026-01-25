@@ -1,14 +1,14 @@
 #pragma once
 
-#include <fstream>
 #include <memory>
 #include <string>
 
+#include "velox/common/file/FileSystem.h"
 #include "velox/common/memory/MemoryPool.h"
 #include "velox/type/Type.h"
 #include "velox/vector/ComplexVector.h"
 
-namespace facebook::velox::io {
+namespace facebook::velox::dwio::csv {
 
 struct CsvReadOptions {
   char delimiter = ',';
@@ -22,7 +22,7 @@ class CsvRowReader;
 class CsvReader {
 public:
   CsvReader(
-      std::string path,
+      std::shared_ptr<ReadFile> file,
       memory::MemoryPool* pool,
       CsvReadOptions options = {});
 
@@ -30,32 +30,38 @@ public:
   const RowTypePtr& rowType() const { return rowType_; }
 
 private:
-  std::string path_;
+  std::shared_ptr<ReadFile> file_;
   memory::MemoryPool* pool_;
   CsvReadOptions options_;
   RowTypePtr rowType_;
+  std::string firstDataLine_;
+  bool hasFirstDataLine_ = false;
 };
 
 class CsvRowReader {
 public:
   CsvRowReader(
-      std::string path,
+      std::shared_ptr<ReadFile> file,
       RowTypePtr rowType,
       memory::MemoryPool* pool,
-      CsvReadOptions options);
+      CsvReadOptions options,
+      std::string firstDataLine,
+      bool hasFirstDataLine);
 
   bool next(size_t batchSize, RowVectorPtr& out);
 
 private:
-  std::string path_;
+  std::shared_ptr<ReadFile> file_;
   RowTypePtr rowType_;
   memory::MemoryPool* pool_;
   CsvReadOptions options_;
-  std::unique_ptr<std::ifstream> file_;
+  std::unique_ptr<std::istream> input_;
+  std::string firstDataLine_;
+  bool hasFirstDataLine_ = false;
   bool initialized_ = false;
   bool eof_ = false;
 
   void ensureInitialized();
 };
 
-} // namespace facebook::velox::io
+} // namespace facebook::velox::dwio::csv
