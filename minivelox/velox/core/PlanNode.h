@@ -4,6 +4,7 @@
 #include <vector>
 #include "velox/vector/ComplexVector.h"
 #include "velox/core/ITypedExpr.h"
+#include "velox/tpch/gen/TpchGen.h"
 
 namespace facebook::velox::core {
 
@@ -104,12 +105,17 @@ private:
 
 class TableScanNode : public PlanNode {
 public:
-    TableScanNode(PlanNodeId id) : id_(id) {}
+    TableScanNode(PlanNodeId id, tpch::Table table, std::vector<std::string> columns) 
+        : id_(id), table_(table), columns_(std::move(columns)) {}
     const PlanNodeId& id() const override { return id_; }
     std::string toString() const override { return "TableScan"; }
     std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {}; }
+    tpch::Table table() const { return table_; }
+    const std::vector<std::string>& columns() const { return columns_; }
 private:
     PlanNodeId id_;
+    tpch::Table table_;
+    std::vector<std::string> columns_;
 };
 
 class HashJoinNode : public PlanNode {

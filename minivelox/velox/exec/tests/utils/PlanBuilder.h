@@ -46,7 +46,7 @@ public:
                  tpch::Table table,
                  std::vector<std::string> columns,
                  int scaleFactor) {
-        root_ = std::make_shared<core::TableScanNode>(generator_->next());
+        root_ = std::make_shared<core::TableScanNode>(generator_->next(), table, columns);
         return *this;
     }
     

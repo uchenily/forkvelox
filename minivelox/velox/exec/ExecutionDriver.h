@@ -46,6 +46,7 @@ public:
                          if (auto op = std::dynamic_pointer_cast<TopNOperator>(operators_[i])) op->noMoreInput();
                          if (auto op = std::dynamic_pointer_cast<FilterOperator>(operators_[i])) op->noMoreInput();
                          if (auto op = std::dynamic_pointer_cast<AggregationOperator>(operators_[i])) op->noMoreInput();
+                         if (auto op = std::dynamic_pointer_cast<HashJoinOperator>(operators_[i])) op->noMoreInput();
                      }
                      
                      // Now flush pipeline
