@@ -7,8 +7,34 @@
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include <unordered_map>
+#include <iomanip>
 
 namespace facebook::velox::exec {
+
+// Base Expr implementations
+std::string Expr::toString(bool recursive) const {
+  if (recursive) {
+    std::stringstream out;
+    out << name_;
+    appendInputs(out);
+    return out.str();
+  }
+  return name_;
+}
+
+void Expr::appendInputs(std::stringstream& stream) const {
+  if (!inputs_.empty()) {
+    stream << "(";
+    for (auto i = 0; i < inputs_.size(); ++i) {
+      if (i > 0) {
+        stream << ", ";
+      }
+      stream << inputs_[i]->toString();
+    }
+    stream << ")";
+  }
+}
 
 namespace {
 
@@ -17,11 +43,10 @@ ExprPtr compile(const core::TypedExprPtr& expr);
 
 class ConstantExpr : public Expr {
 public:
-    ConstantExpr(Variant value) : value_(value) {}
+    ConstantExpr(Variant value) 
+        : Expr(resolveType(value), {}, value.toString()), value_(value) {}
+        
     void eval(const SelectivityVector& rows, EvalCtx& context, VectorPtr& result) override {
-        // Simply create a FlatVector filled with value
-        // Note: In real Velox, this would result in a ConstantVector.
-        // Here we simulate by creating a FlatVector.
         auto pool = context.pool();
         int size = rows.size();
         
@@ -39,7 +64,7 @@ public:
             auto flat = std::make_shared<FlatVector<int32_t>>(
                 pool, INTEGER(), nullptr, size, 
                 AlignedBuffer::allocate(size * sizeof(int32_t), pool));
-            int64_t v = value_.value<int64_t>(); // Variant stores int32 as int64 currently
+            int64_t v = value_.value<int64_t>(); 
             auto* raw = flat->mutableRawValues();
             rows.applyToSelected([&](vector_size_t i) {
                 raw[i] = (int32_t)v;
@@ -49,14 +74,21 @@ public:
              VELOX_NYI("Constant type not supported in demo yet");
         }
     }
-    std::shared_ptr<const Type> type() const override { return BIGINT(); /*TODO*/ } // Mock
+    
 private:
+    static std::shared_ptr<const Type> resolveType(const Variant& v) {
+        if (v.kind() == TypeKind::INTEGER) return INTEGER();
+        if (v.kind() == TypeKind::BIGINT) return BIGINT();
+        return BIGINT(); // Default
+    }
     Variant value_;
 };
 
 class FieldReference : public Expr {
 public:
-    FieldReference(std::string name, std::shared_ptr<const Type> type) : name_(name), type_(type) {}
+    FieldReference(std::string name, std::shared_ptr<const Type> type) 
+        : Expr(type, {}, name) {}
+        
     void eval(const SelectivityVector& rows, EvalCtx& context, VectorPtr& result) override {
         auto row = context.row();
         auto& children = row->children();
@@ -70,10 +102,6 @@ public:
         }
         throw std::runtime_error("Field not found: " + name_);
     }
-    std::shared_ptr<const Type> type() const override { return type_; }
-private:
-    std::string name_;
-    std::shared_ptr<const Type> type_;
 };
 
 // Hardcoded function logic for demo
@@ -106,10 +134,6 @@ public:
                const TypePtr& outputType,
                EvalCtx& context, 
                VectorPtr& result) const override {
-        // Simplified: assume args[0] is constant 2, args[1] is vector 'a' OR both vectors
-        // The parser stub will produce Constant(2) and Field(a).
-        // ConstantExpr evaluates to FlatVector(filled).
-        // So both are vectors.
         auto left = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[0]);
         auto right = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[1]);
         
@@ -166,7 +190,7 @@ public:
             int64_t start = startVec->valueAt(i); // 1-based
             int64_t len = lenVec->valueAt(i);
             
-            if (start <= 0 || start > s.size()) {
+            if (start <= 0 || start > (int64_t)s.size()) {
                 results[i] = ""; 
             } else {
                 size_t available = s.size() - (start - 1);
@@ -286,15 +310,9 @@ public:
                const TypePtr& outputType,
                EvalCtx& context, 
                VectorPtr& result) const override {
-        // Simplified: assume int64 comparison for now
         auto left = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[0]);
         auto right = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[1]);
         
-        // Output is BOOLEAN (simulated as INTEGER/int32_t usually, or just int64_t for simplicity in this stub)
-        // If outputType is INTEGER, use int32_t. If BIGINT, use int64_t.
-        // My Type inference says INTEGER.
-        
-        // Let's use int32_t for boolean
         auto flat = std::make_shared<FlatVector<int32_t>>(
                 context.pool(), INTEGER(), nullptr, rows.size(), 
                 AlignedBuffer::allocate(rows.size() * sizeof(int32_t), context.pool()));
@@ -305,8 +323,6 @@ public:
                  raw[i] = (left->valueAt(i) == right->valueAt(i));
              });
         } else {
-             // Handle type mismatch or other types if needed (e.g. ConstantVector which is not SimpleVector in my stub yet? 
-             // Ah, ConstantExpr returns FlatVector, so it IS SimpleVector)
              VELOX_NYI("EqFunction only supports SimpleVector<int64> for now");
         }
         result = flat;
@@ -316,7 +332,7 @@ public:
 class CallExpr : public Expr {
 public:
     CallExpr(std::string name, std::vector<ExprPtr> inputs, std::shared_ptr<const Type> type)
-        : name_(name), inputs_(std::move(inputs)), type_(type) {}
+        : Expr(type, std::move(inputs), name) {}
 
     void eval(const SelectivityVector& rows, EvalCtx& context, VectorPtr& result) override {
         std::vector<VectorPtr> args;
@@ -345,11 +361,6 @@ public:
              VELOX_NYI("Function {}", name_);
         }
     }
-    std::shared_ptr<const Type> type() const override { return type_; }
-private:
-    std::string name_;
-    std::vector<ExprPtr> inputs_;
-    std::shared_ptr<const Type> type_;
 };
 
 ExprPtr compile(const core::TypedExprPtr& expr) {
@@ -367,6 +378,34 @@ ExprPtr compile(const core::TypedExprPtr& expr) {
         return std::make_shared<CallExpr>(call->name(), std::move(args), call->type());
     }
     VELOX_FAIL("Unknown expr type");
+}
+
+void printExprTree(
+    const exec::Expr& expr,
+    const std::string& indent,
+    bool withStats,
+    std::stringstream& out,
+    std::unordered_map<const exec::Expr*, uint32_t>& uniqueExprs) {
+  
+  auto it = uniqueExprs.find(&expr);
+  if (it != uniqueExprs.end()) {
+      out << indent << expr.toString(true) << " -> " << expr.type()->toString();
+      out << " [CSE #" << it->second << "]" << std::endl;
+      return;
+  }
+  
+  uint32_t id = uniqueExprs.size() + 1;
+  uniqueExprs.insert({&expr, id});
+
+  const auto& stats = expr.stats();
+  out << indent << expr.toString(false);
+  // if (withStats) { ... } // stub stats
+  out << " -> " << expr.type()->toString() << " [#" << id << "]" << std::endl;
+
+  auto newIndent = indent + "   ";
+  for (const auto& input : expr.inputs()) {
+    printExprTree(*input, newIndent, withStats, out, uniqueExprs);
+  }
 }
 
 } // namespace
@@ -388,7 +427,19 @@ void ExprSet::eval(const SelectivityVector& rows, EvalCtx& context, std::vector<
 }
 
 std::string ExprSet::toString(bool compact) const {
-    return "ExprSet";
+  std::unordered_map<const exec::Expr*, uint32_t> uniqueExprs;
+  std::stringstream out;
+  for (size_t i = 0; i < exprs_.size(); ++i) {
+    if (i > 0) {
+      out << std::endl;
+    }
+    if (compact) {
+      out << exprs_[i]->toString(true /*recursive*/);
+    } else {
+      printExprTree(*exprs_[i], "", false /*withStats*/, out, uniqueExprs);
+    }
+  }
+  return out.str();
 }
 
 }
