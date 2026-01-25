@@ -19,8 +19,8 @@ set(COMMON_SOURCES
     parse/Expressions.cpp
     exec/Operator.cpp
     exec/PlanNode.cpp
-    # exec/Driver.cpp
-    # exec/Task.cpp
+    exec/Driver.cpp
+    exec/Task.cpp
     # exec/PlanBuilder.cpp
 )
 

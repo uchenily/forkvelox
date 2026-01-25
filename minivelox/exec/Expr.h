@@ -4,13 +4,9 @@
 #include "vector/RowVector.h"
 #include "vector/SelectivityVector.h"
 #include "type/Variant.h"
+#include "core/Context.h"
 #include <vector>
 #include <sstream>
-
-namespace facebook::velox::core {
-    class QueryCtx;
-    class ExecCtx;
-}
 
 namespace facebook::velox::exec {
 
@@ -83,21 +79,5 @@ private:
 } 
 
 namespace facebook::velox::core {
-    class QueryCtx {
-    public:
-         static std::shared_ptr<QueryCtx> create(std::shared_ptr<void> executor = nullptr) {
-             return std::make_shared<QueryCtx>();
-         }
-    };
-    
-    class ExecCtx {
-    public:
-        ExecCtx(memory::MemoryPool* pool, QueryCtx* queryCtx) : pool_(pool), queryCtx_(queryCtx) {}
-        memory::MemoryPool* pool() const { return pool_; }
-    private:
-        memory::MemoryPool* pool_;
-        QueryCtx* queryCtx_;
-    };
-    
     using TypedExprPtr = std::shared_ptr<exec::Expr>; 
 }
