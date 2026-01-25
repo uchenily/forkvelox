@@ -160,4 +160,14 @@ private:
     std::string path_;
 };
 
+class LocalExchangeNode : public PlanNode {
+public:
+    explicit LocalExchangeNode(PlanNodeId id) : id_(std::move(id)) {}
+    const PlanNodeId& id() const override { return id_; }
+    std::string toString() const override { return "LocalExchange"; }
+    std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {}; }
+private:
+    PlanNodeId id_;
+};
+
 }

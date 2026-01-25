@@ -6,6 +6,7 @@
 #include "velox/common/base/Exceptions.h"
 #include "velox/expression/Expr.h"
 #include "velox/dwio/common/RowVectorFile.h"
+#include "velox/exec/LocalExchange.h"
 #include <iostream>
 #include <algorithm>
 #include <sstream>
@@ -69,6 +70,53 @@ private:
     std::vector<RowVectorPtr> values_;
     size_t current_ = 0;
     std::shared_ptr<SourceState> state_;
+    bool finished_ = false;
+};
+
+class LocalExchangeSourceOperator : public Operator {
+public:
+    LocalExchangeSourceOperator(core::PlanNodePtr node, std::shared_ptr<LocalExchangeQueue> queue)
+        : Operator(node), queue_(std::move(queue)) {}
+    bool needsInput() const override { return false; }
+    void addInput(RowVectorPtr input) override {}
+    RowVectorPtr getOutput() override {
+        if (finished_) {
+            return nullptr;
+        }
+        RowVectorPtr batch;
+        if (!queue_->dequeue(batch)) {
+            finished_ = true;
+            return nullptr;
+        }
+        return batch;
+    }
+    bool isFinished() override { return finished_; }
+private:
+    std::shared_ptr<LocalExchangeQueue> queue_;
+    bool finished_ = false;
+};
+
+class LocalExchangeSinkOperator : public Operator {
+public:
+    LocalExchangeSinkOperator(core::PlanNodePtr node, std::shared_ptr<LocalExchangeQueue> queue)
+        : Operator(node), queue_(std::move(queue)) {}
+    bool needsInput() const override { return !noMoreInput_; }
+    void addInput(RowVectorPtr input) override {
+        if (input) {
+            queue_->enqueue(input);
+        }
+    }
+    void noMoreInput() override {
+        noMoreInput_ = true;
+        if (!finished_) {
+            finished_ = true;
+            queue_->producerFinished();
+        }
+    }
+    RowVectorPtr getOutput() override { return nullptr; }
+    bool isFinished() override { return finished_; }
+private:
+    std::shared_ptr<LocalExchangeQueue> queue_;
     bool finished_ = false;
 };
 
