@@ -31,3 +31,6 @@ target_link_libraries(ScanCsvDemo velox_common Threads::Threads)
 
 add_executable(TaskParallelDemo demo/TaskParallelDemo.cpp)
 target_link_libraries(TaskParallelDemo velox_common Threads::Threads)
+
+add_executable(PipelineSplitDemo demo/PipelineSplitDemo.cpp)
+target_link_libraries(PipelineSplitDemo velox_common Threads::Threads)

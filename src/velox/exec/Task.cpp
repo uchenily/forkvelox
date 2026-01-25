@@ -319,22 +319,29 @@ std::vector<RowVectorPtr> Task::run() {
 
     auto chain = linearizeChain(plan);
     auto pipelineNodes = splitPipelines(chain);
-    const size_t driverCount = std::max<size_t>(1, maxDrivers_);
 
     struct Pipeline {
       std::vector<core::PlanNodePtr> nodes;
       std::shared_ptr<LocalExchangeQueue> inputQueue;
       std::shared_ptr<LocalExchangeQueue> outputQueue;
+      size_t numDrivers{1};
     };
 
     std::vector<Pipeline> pipelines;
     pipelines.reserve(pipelineNodes.size());
     for (size_t i = 0; i < pipelineNodes.size(); ++i) {
-      Pipeline pipeline{pipelineNodes[i], nullptr, nullptr};
+      Pipeline pipeline{pipelineNodes[i], nullptr, nullptr, std::max<size_t>(1, maxDrivers_)};
+      for (const auto& node : pipeline.nodes) {
+        if (isBlockingNode(node)) {
+          pipeline.numDrivers = 1;
+          break;
+        }
+      }
       pipelines.push_back(std::move(pipeline));
     }
     for (size_t i = 0; i + 1 < pipelines.size(); ++i) {
-      auto queue = std::make_shared<LocalExchangeQueue>(driverCount);
+      auto queue =
+          std::make_shared<LocalExchangeQueue>(pipelines[i].numDrivers);
       pipelines[i].outputQueue = queue;
       pipelines[i + 1].inputQueue = queue;
     }
@@ -345,7 +352,7 @@ std::vector<RowVectorPtr> Task::run() {
 
     for (size_t pipelineId = 0; pipelineId < pipelines.size(); ++pipelineId) {
       auto& pipeline = pipelines[pipelineId];
-      for (size_t driverId = 0; driverId < driverCount; ++driverId) {
+      for (size_t driverId = 0; driverId < pipeline.numDrivers; ++driverId) {
         threads.emplace_back([&, pipelineId]() {
           core::ExecCtx execCtx(queryCtx_->pool(), queryCtx_.get());
           std::vector<std::shared_ptr<Operator>> ops;
