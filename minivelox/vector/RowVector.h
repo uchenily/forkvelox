@@ -16,6 +16,7 @@ public:
     const std::vector<VectorPtr>& children() const { return children_; }
     VectorPtr childAt(int32_t idx) const { return children_[idx]; }
 
+    using BaseVector::toString;
     std::string toString(vector_size_t start, vector_size_t end) const override {
         std::stringstream ss;
         ss << "[";

@@ -110,9 +110,12 @@ public:
         return ret;
     }
 
-    bool isFinished() override { return false; }
+    // bool isFinished() override { return false; } // Removed
+    void noMoreInput() override { finished_ = true; }
+    bool isFinished() override { return finished_; }
 
 private:
+    bool finished_ = false;
     exec::ExprPtr filter_;
     RowVectorPtr input_;
 };
@@ -143,9 +146,11 @@ public:
         return ret;
     }
     
-    bool isFinished() override { return false; }
+    void noMoreInput() override { finished_ = true; }
+    bool isFinished() override { return finished_; }
 
 private:
+    bool finished_ = false;
     std::vector<exec::ExprPtr> projections_;
     std::vector<std::string> names_;
     RowVectorPtr input_;
@@ -364,7 +369,7 @@ public:
         });
         
         finished_ = true;
-        return OperatorUtils::copyVector(batch, indices, ctx_->pool());
+        return std::dynamic_pointer_cast<RowVector>(OperatorUtils::copyVector(batch, indices, ctx_->pool()));
     }
     
     void noMoreInput() { finishedInput_ = true; }
@@ -392,7 +397,7 @@ public:
         
         std::vector<vector_size_t> indices;
         for(int i=0; i<count_; ++i) indices.push_back(i);
-        return OperatorUtils::copyVector(sorted, indices, ctx_->pool());
+        return std::dynamic_pointer_cast<RowVector>(OperatorUtils::copyVector(sorted, indices, ctx_->pool()));
     }
 private:
     int32_t count_;
@@ -474,15 +479,33 @@ public:
         return ret;
     }
     
-    bool isFinished() override { return false; }
-
-private:
-    std::vector<std::string> leftKeys_;
-    std::vector<std::string> rightKeys_;
-    std::vector<RowVectorPtr> buildSide_;
-    RowTypePtr outputType_;
-    RowVectorPtr input_;
-    std::unordered_map<std::string, std::vector<std::pair<int, int>>> hashTable_;
+        
+    
+        void noMoreInput() override { finished_ = true; }
+    
+        bool isFinished() override { return finished_; }
+    
+    
+    
+    private:
+    
+        std::vector<std::string> leftKeys_;
+    
+        std::vector<std::string> rightKeys_;
+    
+        std::vector<RowVectorPtr> buildSide_;
+    
+        RowTypePtr outputType_;
+    
+        RowVectorPtr input_;
+    
+        std::unordered_map<std::string, std::vector<std::pair<int, int>>> hashTable_;
+    
+        bool finished_ = false;
+    
+        
+    
+        // Copy helper
 };
 
 } // namespace facebook::velox::exec

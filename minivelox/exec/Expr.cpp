@@ -245,6 +245,15 @@ public:
     }
 };
 
+// Dummy Aggregate Functions (Scalar placeholders)
+class AggregatePlaceholderFunction : public VectorFunction {
+public:
+    void apply(const SelectivityVector& rows, const std::vector<VectorPtr>& args, const TypePtr& outputType,
+               EvalCtx& context, VectorPtr& result) const override {
+        throw std::runtime_error("Aggregate function called in scalar context");
+    }
+};
+
 // Register all functions
 void registerAllFunctions() {
     auto& reg = SimpleFunctionRegistry::instance();
@@ -255,6 +264,12 @@ void registerAllFunctions() {
     reg.registerFunction("upper", std::make_shared<UpperFunction>());
     reg.registerFunction("concat", std::make_shared<ConcatFunction>());
     reg.registerFunction("eq", std::make_shared<EqFunction>());
+    
+    // Aggregates
+    auto placeholder = std::make_shared<AggregatePlaceholderFunction>();
+    reg.registerFunction("sum", placeholder);
+    reg.registerFunction("avg", placeholder);
+    reg.registerFunction("count", placeholder);
 }
 
 } // namespace facebook::velox::exec

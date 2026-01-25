@@ -42,6 +42,9 @@ public:
     // Check if operator is finished (will produce no more output).
     virtual bool isFinished() = 0;
     
+    // Signal that no more input will be added
+    virtual void noMoreInput() {}
+    
     OperatorCtx* operatorCtx() const { return ctx_.get(); }
     memory::MemoryPool* pool() const { return ctx_->pool(); }
 

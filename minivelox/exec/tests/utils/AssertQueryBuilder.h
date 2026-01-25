@@ -90,59 +90,54 @@ public:
 private:
     PlanNodePtr plan_;
 
+#include <iostream>
+
+// ... inside AssertQueryBuilder
+
     std::unique_ptr<Operator> buildOperatorTree(PlanNodePtr node, memory::MemoryPool* pool) {
-        // Create context
-        auto ctx = std::make_unique<OperatorCtx>(nullptr, node->id(), 0, pool);
-        
-        if (auto values = std::dynamic_pointer_cast<const ValuesNode>(node)) {
-            return std::make_unique<ValuesOperator>(std::move(ctx), values);
-        }
-        else if (auto filter = std::dynamic_pointer_cast<const FilterNode>(node)) {
-             auto sourceOp = buildOperatorTree(node->sources()[0], pool);
-             auto op = std::make_unique<FilterOperator>(std::move(ctx), filter);
-             // Connect: Filter pulls from Source?
-             // My Operator interface is `addInput`.
-             // Who calls addInput?
-             // A Driver loop.
-             // Here I am building a tree.
-             // If I want `op->getOutput()` to work, `op` needs to pull from `sourceOp`?
-             // But FilterOperator expects `addInput`.
-             // I need an Adapter that pulls from Source and calls addInput on Filter?
+        // std::cout << "Building operator for " << node->toString() << std::endl;
+        // ...
+        else if (auto join = std::dynamic_pointer_cast<const HashJoinNode>(node)) {
+             // Build Right
+             auto rightOp = buildOperatorTree(join->right(), pool);
              
-             // Better: Wrappers.
-             // `PullAdapter(FilterOperator, SourceOperator)`
-             // `getOutput` calls `Source.getOutput`, feeds `Filter.addInput`, then `Filter.getOutput`.
-             return std::make_unique<PullAdapter>(std::move(op), std::move(sourceOp));
+             std::vector<RowVectorPtr> buildSide;
+             int loopCount = 0;
+             while(true) {
+                 if (loopCount++ > 1000) throw std::runtime_error("HashJoin build loop exceeded limit");
+                 auto batch = rightOp->getOutput();
+                 if (!batch) { if (rightOp->isFinished()) break; continue; }
+                 buildSide.push_back(batch);
+             }
+             
+             auto leftOp = buildOperatorTree(join->left(), pool);
+             
+             auto op = std::make_unique<HashJoinOperator>(std::move(ctx), join->leftKeys(), join->rightKeys(), buildSide, join->outputType());
+             return std::make_unique<PullAdapter>(std::move(op), std::move(leftOp));
         }
-        else if (auto project = std::dynamic_pointer_cast<const ProjectNode>(node)) {
-             auto sourceOp = buildOperatorTree(node->sources()[0], pool);
-             auto op = std::make_unique<ProjectOperator>(std::move(ctx), project);
-             return std::make_unique<PullAdapter>(std::move(op), std::move(sourceOp));
-        }
-        // TODO: Other nodes
         
-        throw std::runtime_error("Unsupported PlanNode in AssertQueryBuilder: " + node->toString());
-    }
-    
+// ...
+
     class PullAdapter : public Operator {
-    public:
-        PullAdapter(std::unique_ptr<Operator> op, std::unique_ptr<Operator> source)
-            : Operator(nullptr), op_(std::move(op)), source_(std::move(source)) {} // ctx null for adapter
-            
+        // ...
         RowVectorPtr getOutput() override {
-            // Try to get output from op
             auto out = op_->getOutput();
             if (out) return out;
             
-            // Need input
             if (source_->isFinished()) {
-                // Flush op?
-                return op_->getOutput(); 
-                // If op is streaming, it might be done.
+                // Ensure we called noMoreInput only once? Operator handles it usually.
+                // But HashJoin finish logic relies on it.
+                // If source finished, we might have already called noMoreInput.
+                // We should check if we already returned the final output.
+                // But getOutput() called noMoreInput last time?
+                // No, we called noMoreInput then returned getOutput().
+                // If called again, op->getOutput() returns null.
+                return nullptr;
             }
             
-            // Pull from source
+            int loopCount = 0;
             while(!source_->isFinished()) {
+                if (loopCount++ > 10000) throw std::runtime_error("PullAdapter loop exceeded limit for " + source_->operatorCtx()->planNodeId());
                 auto batch = source_->getOutput();
                 if (batch) {
                     op_->addInput(batch);
@@ -150,8 +145,10 @@ private:
                     if (out) return out;
                 }
             }
+            op_->noMoreInput(); 
             return op_->getOutput();
         }
+
         
         bool isFinished() override {
             return op_->isFinished() && source_->isFinished(); // Simplified
