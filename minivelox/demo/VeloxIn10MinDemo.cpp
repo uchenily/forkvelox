@@ -265,9 +265,11 @@ void VeloxIn10MinDemo::run() {
 
   if (nations) {
       std::cout << std::endl
-                << "> first 10 rows from TPC-H nation table: \n"
+                << "> first 10 rows from TPC-H nation table: "
                 << nations->toString() << std::endl;
       // std::cout << nations->toString(0, 10) << std::endl;
+  } else {
+      std::cout << "> TPC-H nation table is empty!" << std::endl;
   }
 
   // Let's join TPC-H nation and region tables to count number of nations in

@@ -20,7 +20,7 @@ public:
     PlanBuilder& singleAggregation(
         const std::vector<std::string>& groupingKeys,
         const std::vector<std::string>& aggregates) {
-        root_ = std::make_shared<core::AggregationNode>(generator_->next(), root_, aggregates);
+        root_ = std::make_shared<core::AggregationNode>(generator_->next(), root_, groupingKeys, aggregates);
         return *this;
     }
 

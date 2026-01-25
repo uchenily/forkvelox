@@ -58,14 +58,18 @@ private:
 
 class AggregationNode : public PlanNode {
 public:
-    AggregationNode(PlanNodeId id, PlanNodePtr source, std::vector<std::string> aggregates)
-        : id_(id), source_(source) {}
+    AggregationNode(PlanNodeId id, PlanNodePtr source, std::vector<std::string> groupingKeys, std::vector<std::string> aggregates)
+        : id_(id), source_(source), groupingKeys_(std::move(groupingKeys)), aggregates_(std::move(aggregates)) {}
     const PlanNodeId& id() const override { return id_; }
     std::string toString() const override { return "Aggregation"; }
     std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {source_}; }
+    const std::vector<std::string>& aggregates() const { return aggregates_; }
+    const std::vector<std::string>& groupingKeys() const { return groupingKeys_; }
 private:
     PlanNodeId id_;
     PlanNodePtr source_;
+    std::vector<std::string> groupingKeys_;
+    std::vector<std::string> aggregates_;
 };
 
 class OrderByNode : public PlanNode {
