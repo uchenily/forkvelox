@@ -250,11 +250,30 @@ void VeloxIn10MinDemo::run() {
 
   if (nations) {
       std::cout << std::endl
-                << "> first 10 rows from TPC-H nation table: "
+                << "> first 10 rows from TPC-H nation table: \n"
                 << nations->toString() << std::endl;
       // std::cout << nations->toString(0, 10) << std::endl;
   } else {
       std::cout << "> TPC-H nation table is empty!" << std::endl;
+  }
+
+  plan = PlanBuilder()
+             .tpchTableScan(
+                 tpch::Table::TBL_REGION,
+                 {"r_regionkey", "r_name"},
+                 1 /*scaleFactor*/)
+             .planNode();
+
+  auto regions =
+      AssertQueryBuilder(plan).split(makeTpchSplit()).copyResults(pool());
+
+  if (regions) {
+      std::cout << std::endl
+                << "> first 10 rows from TPC-H region table: \n"
+                << regions->toString() << std::endl;
+      // std::cout << regions->toString(0, 10) << std::endl;
+  } else {
+      std::cout << "> TPC-H region table is empty!" << std::endl;
   }
 
   // Let's join TPC-H nation and region tables to count number of nations in
