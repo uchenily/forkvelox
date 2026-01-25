@@ -279,15 +279,76 @@ std::vector<RowVectorPtr> Task::run() {
     return results;
   };
 
+  auto runBlockingWithValues = [&](const core::PlanNodePtr& blockingNode,
+                                   const std::vector<RowVectorPtr>& batches) {
+    auto valuesNode =
+        std::make_shared<core::ValuesNode>("final_values", batches);
+    std::vector<std::shared_ptr<Operator>> ops;
+    ops.push_back(std::make_shared<ValuesOperator>(valuesNode));
+
+    if (std::dynamic_pointer_cast<const core::OrderByNode>(blockingNode)) {
+      ops.push_back(std::make_shared<OrderByOperator>(blockingNode));
+    } else if (std::dynamic_pointer_cast<const core::TopNNode>(blockingNode)) {
+      ops.push_back(std::make_shared<TopNOperator>(blockingNode));
+    } else if (std::dynamic_pointer_cast<const core::AggregationNode>(blockingNode)) {
+      core::ExecCtx execCtx(queryCtx_->pool(), queryCtx_.get());
+      ops.push_back(std::make_shared<AggregationOperator>(blockingNode, &execCtx));
+    } else if (std::dynamic_pointer_cast<const core::TableWriteNode>(blockingNode)) {
+      ops.push_back(std::make_shared<TableWriteOperator>(blockingNode));
+    } else {
+      VELOX_FAIL("Unsupported blocking operator");
+    }
+
+    ::facebook::velox::exec::Driver driver(ops);
+    return driver.run();
+  };
+
   if (auto orderBy =
           std::dynamic_pointer_cast<const core::OrderByNode>(plan_)) {
     auto upstream = orderBy->sources()[0];
     auto partial = runPlanWithDrivers(upstream);
+    return runBlockingWithValues(plan_, partial);
+  }
 
-    auto valuesNode = std::make_shared<core::ValuesNode>("final_values", partial);
+  if (auto topN = std::dynamic_pointer_cast<const core::TopNNode>(plan_)) {
+    auto upstream = topN->sources()[0];
+    auto partial = runPlanWithDrivers(upstream);
+    return runBlockingWithValues(plan_, partial);
+  }
+
+  if (auto agg = std::dynamic_pointer_cast<const core::AggregationNode>(plan_)) {
+    auto upstream = agg->sources()[0];
+    auto partial = runPlanWithDrivers(upstream);
+    return runBlockingWithValues(plan_, partial);
+  }
+
+  if (auto write = std::dynamic_pointer_cast<const core::TableWriteNode>(plan_)) {
+    auto upstream = write->sources()[0];
+    auto partial = runPlanWithDrivers(upstream);
+    return runBlockingWithValues(plan_, partial);
+  }
+
+  if (auto join = std::dynamic_pointer_cast<const core::HashJoinNode>(plan_)) {
+    auto probePlan = join->sources()[0];
+    auto buildPlan = join->sources()[1];
+    auto probeBatches = runPlanWithDrivers(probePlan);
+
+    core::ExecCtx execCtx(queryCtx_->pool(), queryCtx_.get());
+    SourceStateMap buildStates;
+    collectSourceStates(buildPlan, execCtx.pool(), buildStates);
+    std::vector<std::shared_ptr<Operator>> buildOps;
+    buildPipeline(buildPlan, buildOps, &execCtx, buildStates);
+    std::reverse(buildOps.begin(), buildOps.end());
+    ::facebook::velox::exec::Driver buildDriver(buildOps);
+    auto buildResults = buildDriver.run();
+
+    auto valuesNode =
+        std::make_shared<core::ValuesNode>("final_values", probeBatches);
     std::vector<std::shared_ptr<Operator>> ops;
     ops.push_back(std::make_shared<ValuesOperator>(valuesNode));
-    ops.push_back(std::make_shared<OrderByOperator>(plan_));
+    auto joinOp = std::make_shared<HashJoinOperator>(plan_, &execCtx);
+    joinOp->setBuildSide(buildResults);
+    ops.push_back(joinOp);
     ::facebook::velox::exec::Driver driver(ops);
     return driver.run();
   }
