@@ -1,6 +1,6 @@
 #pragma once
 #include "velox/core/PlanNode.h"
-#include "velox/exec/ExecutionDriver.h"
+#include "velox/exec/Driver.h"
 #include "velox/exec/Operator.h"
 #include "velox/core/ExecCtx.h"
 #include "velox/exec/Split.h"
@@ -30,12 +30,12 @@ public:
                 buildBuilder.buildPipeline(joinNode->sources()[1], buildOps, &execCtx);
                 std::reverse(buildOps.begin(), buildOps.end());
                 
-                ::facebook::velox::exec::ExecutionDriver buildDriver(buildOps);
+                ::facebook::velox::exec::Driver buildDriver(buildOps);
                 joinOp->setBuildSide(buildDriver.run());
             }
         }
 
-        ::facebook::velox::exec::ExecutionDriver driver(ops);
+        ::facebook::velox::exec::Driver driver(ops);
         auto batches = driver.run();
         
         if (batches.empty()) {

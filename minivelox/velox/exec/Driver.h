@@ -6,9 +6,9 @@
 
 namespace facebook::velox::exec {
 
-class ExecutionDriver {
+class Driver {
 public:
-    ExecutionDriver(std::vector<std::shared_ptr<Operator>> operators) : operators_(std::move(operators)) {}
+    Driver(std::vector<std::shared_ptr<Operator>> operators) : operators_(std::move(operators)) {}
     
     std::vector<RowVectorPtr> run() {
         std::cout << "[Driver] Starting execution pipeline." << std::endl;
