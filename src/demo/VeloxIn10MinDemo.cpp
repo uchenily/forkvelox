@@ -232,10 +232,11 @@ void VeloxIn10MinDemo::run() {
   // data on the fly. We are going to read columns n_nationkey and n_name from
   // nation table and print first 10 rows.
 
+  // nations
   plan = PlanBuilder()
              .tpchTableScan(
                  tpch::Table::TBL_NATION,
-                 {"n_nationkey", "n_name"},
+                 {"n_regionkey", "n_name"},
                  1 /*scaleFactor*/)
              .planNode();
 
@@ -250,6 +251,7 @@ void VeloxIn10MinDemo::run() {
       std::cout << "> TPC-H nation table is empty!" << std::endl;
   }
 
+  // regions
   plan = PlanBuilder()
              .tpchTableScan(
                  tpch::Table::TBL_REGION,
