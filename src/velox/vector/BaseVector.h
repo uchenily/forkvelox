@@ -3,6 +3,8 @@
 #include <memory>
 #include <vector>
 #include <optional>
+#include <sstream>
+#include <algorithm>
 #include "velox/type/Type.h"
 #include "velox/buffer/Buffer.h"
 #include "velox/vector/VectorEncoding.h"
@@ -13,6 +15,9 @@ namespace facebook::velox {
 using vector_size_t = int32_t;
 
 class BaseVector : public std::enable_shared_from_this<BaseVector> {
+public:
+    static constexpr std::string_view kNullValueString = "null";
+
 public:
     BaseVector(memory::MemoryPool* pool,
                std::shared_ptr<const Type> type,
@@ -49,15 +54,51 @@ public:
     
     virtual void copy(const BaseVector* source, vector_size_t sourceIndex, vector_size_t targetIndex) = 0;
 
-    virtual std::string toString(vector_size_t start, vector_size_t end) const {
-        std::string s;
-        for(vector_size_t i = start; i < end && i < length_; ++i) {
-             s += toString(i) + "\n";
+    // Returns a brief summary of the vector: [ENCODING TYPE: N elements, X nulls]
+    virtual std::string toSummaryString() const {
+        std::ostringstream out;
+        out << "[" << encoding_ << " " << type_->toString() << ": " << length_
+            << " elements, ";
+        if (!nulls_) {
+            out << "no nulls";
+        } else {
+            // Count nulls
+            vector_size_t nullCount = 0;
+            for (vector_size_t i = 0; i < length_; ++i) {
+                if (isNullAt(i)) nullCount++;
+            }
+            out << nullCount << " nulls";
         }
-        return s;
+        out << "]";
+        return out.str();
     }
 
-    std::string toString() const { return toString(0, std::min(length_, 10)); }
+    // Returns the brief summary (matching Velox's toString() behavior)
+    std::string toString() const {
+        return toSummaryString() + "\n" + toString(0, length_);
+    }
+
+    // Returns a range of values [from, to) with optional row numbers
+    std::string toString(
+        vector_size_t from,
+        vector_size_t to,
+        const char* delimiter = "\n",
+        bool includeRowNumbers = true) const {
+        const auto start = std::max<vector_size_t>(0, std::min(from, length_));
+        const auto end = std::max<vector_size_t>(0, std::min(to, length_));
+
+        std::ostringstream out;
+        for (auto i = start; i < end; ++i) {
+            if (i > start) {
+                out << delimiter;
+            }
+            if (includeRowNumbers) {
+                out << i << ": ";
+            }
+            out << toString(i);
+        }
+        return out.str();
+    }
 
     virtual BaseVector* loadedVector() { return this; }
     virtual const BaseVector* loadedVector() const { return this; }

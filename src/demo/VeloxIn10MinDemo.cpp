@@ -118,8 +118,7 @@ void VeloxIn10MinDemo::run() {
 
   std::cout << std::endl
             << "> vectors a, b, dow: \n" << data->toString() << std::endl;
-  // std::cout << data->toString(0, data->size()) << std::endl; 
-  // BaseVector::toString(start, end) was implemented in BaseVector.h
+  std::cout << data->toString() << std::endl;
 
   // Expressions.
 
@@ -139,7 +138,7 @@ void VeloxIn10MinDemo::run() {
   auto abc = makeRowVector({"a", "b", "c"}, {a, b, c});
 
   std::cout << std::endl << "> a, b, a + b: \n" << abc->toString() << std::endl;
-  // std::cout << abc->toString(0, c->size()) << std::endl;
+  std::cout << abc->toString() << std::endl;
 
   // Let's try a slightly more complex expression: `3 * a + sqrt(b)`.
   // Note: demo code says `2 * a + b % 3` in string but `3 * a + sqrt(b)` in comment.
@@ -154,7 +153,7 @@ void VeloxIn10MinDemo::run() {
 
   std::cout << std::endl
             << "> a, b, 2 * a + b % 3: \n" << abd->toString() << std::endl;
-  // std::cout << abd->toString(0, d->size()) << std::endl;
+  std::cout << abd->toString() << std::endl;
 
   // Let's transform 'dow' column into a 3-letter prefix with first letter
   // capitalized, e.g. Mon, Tue, etc.
@@ -170,7 +169,6 @@ void VeloxIn10MinDemo::run() {
   auto shortDow = evaluate(*exprSet, data);
   std::cout << std::endl
             << "> short days of week: \n" << shortDow->toString() << std::endl;
-  // std::cout << shortDow->toString(0, shortDow->size()) << std::endl;
 
   // Queries.
 
@@ -193,7 +191,6 @@ void VeloxIn10MinDemo::run() {
       std::cout << std::endl
                 << "> sum and average for a and b: \n" << sumAvg->toString()
                 << std::endl;
-      // std::cout << sumAvg->toString(0, sumAvg->size()) << std::endl;
   }
 
   // Now, let's sort by 'a' descending.
@@ -206,7 +203,6 @@ void VeloxIn10MinDemo::run() {
       std::cout << std::endl
                 << "> data sorted on 'a' in descending order: \n"
                 << sorted->toString() << std::endl;
-      // std::cout << sorted->toString(0, sorted->size()) << std::endl;
   }
 
   // And take top 3 rows.
@@ -219,7 +215,6 @@ void VeloxIn10MinDemo::run() {
       std::cout << std::endl
                 << "> top 3 rows as sorted on 'a' in descending order: \n"
                 << top3->toString() << std::endl;
-      // std::cout << top3->toString(0, top3->size()) << std::endl;
   }
 
   // We can also filter rows that have even values of 'a'.
@@ -231,7 +226,6 @@ void VeloxIn10MinDemo::run() {
       std::cout << std::endl
                 << "> rows with even values of column 'a' (a % 2 == 0): \n" << evenA->toString()
                 << std::endl;
-      // std::cout << evenA->toString(0, evenA->size()) << std::endl;
   }
 
   // Now, let's read some data from the TPC-H connector which generates TPC-H
@@ -250,9 +244,8 @@ void VeloxIn10MinDemo::run() {
 
   if (nations) {
       std::cout << std::endl
-                << "> first 10 rows from TPC-H nation table: \n"
+                << "> TPC-H nation table: \n"
                 << nations->toString() << std::endl;
-      // std::cout << nations->toString(0, 10) << std::endl;
   } else {
       std::cout << "> TPC-H nation table is empty!" << std::endl;
   }
@@ -269,9 +262,8 @@ void VeloxIn10MinDemo::run() {
 
   if (regions) {
       std::cout << std::endl
-                << "> first 10 rows from TPC-H region table: \n"
+                << "> TPC-H region table: \n"
                 << regions->toString() << std::endl;
-      // std::cout << regions->toString(0, 10) << std::endl;
   } else {
       std::cout << "> TPC-H region table is empty!" << std::endl;
   }
@@ -316,7 +308,6 @@ void VeloxIn10MinDemo::run() {
       std::cout << std::endl
                 << "> number of nations per region in TPC-H: \n"
                 << nationCnt->toString() << std::endl;
-      // std::cout << nationCnt->toString(0, 10) << std::endl;
   }
 }
 

@@ -3,6 +3,9 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <sstream>
+#include <functional>
+#include <algorithm>
 #include "velox/common/base/Exceptions.h"
 
 namespace facebook::velox {
@@ -133,6 +136,38 @@ inline std::shared_ptr<const RowType> ROW(std::vector<std::string> names, std::v
 
 inline std::shared_ptr<const RowType> asRowType(const std::shared_ptr<const Type>& type) {
     return std::dynamic_pointer_cast<const RowType>(type);
+}
+
+/// Helper function to create a string representation of a list of elements,
+/// truncating if the list is too long.
+/// @param size Total number of elements.
+/// @param stringifyElement Function to call to append individual elements.
+/// Will be called up to 'limit' times.
+/// @param limit Maximum number of elements to include in the result.
+inline std::string stringifyTruncatedElementList(
+    size_t size,
+    const std::function<void(std::stringstream&, size_t)>& stringifyElement,
+    size_t limit = 5) {
+    if (size == 0) {
+        return "<empty>";
+    }
+
+    const size_t limitedSize = std::min(size, limit);
+
+    std::stringstream out;
+    out << "{";
+    for (size_t i = 0; i < limitedSize; ++i) {
+        if (i > 0) {
+            out << ", ";
+        }
+        stringifyElement(out, i);
+    }
+
+    if (size > limitedSize) {
+        out << ", ..." << (size - limitedSize) << " more";
+    }
+    out << "}";
+    return out.str();
 }
 
 }
