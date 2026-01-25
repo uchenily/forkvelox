@@ -94,6 +94,8 @@ private:
     std::vector<TypePtr> children_;
 };
 
+using RowTypePtr = std::shared_ptr<const RowType>;
+
 // Simplified TypeTraits
 template <TypeKind KIND> struct TypeTraits {};
 
