@@ -1,7 +1,7 @@
-# Project Context: MiniVelox
+# Project Context: ForkVelox
 
 ## Project Overview
-**MiniVelox** is a lightweight, educational re-implementation of the **Meta Velox** database execution engine. It allows developers to understand the internal architecture of a vectorized execution engine by stripping away heavy dependencies (like Folly, Thrift, ProtoBuf) and focusing on the core logic using modern C++23.
+**ForkVelox** is a lightweight, educational re-implementation of the **Meta Velox** database execution engine. It allows developers to understand the internal architecture of a vectorized execution engine by stripping away heavy dependencies (like Folly, Thrift, ProtoBuf) and focusing on the core logic using modern C++23.
 
 It implements a vertical slice of a database engine, including:
 *   **Memory Management:** Hierarchical memory pools.
@@ -13,7 +13,7 @@ It implements a vertical slice of a database engine, including:
 ## Architecture & Structure
 The project structure mirrors the original Velox codebase to facilitate learning:
 
-*   `minivelox/`
+*   `src/`
     *   `demo/`: Contains the main entry point `VeloxIn10MinDemo.cpp`, which replicates the official Velox tutorial queries.
     *   `folly/`: Minimal shims/stubs for Facebook's Folly library to avoid external dependencies.
     *   `velox/`
@@ -36,20 +36,17 @@ The project uses **CMake** (3.20+) and defaults to **C++23**. **Ninja** is the r
 *   CMake & Ninja
 
 ### Build Commands
-Run the following from the `minivelox` directory:
 
 ```bash
-mkdir -p build && cd build
-cmake -GNinja ..
-ninja
+cmake -GNinja -Bbuild
+cmake --build build
 ```
 
 ### Running the Demo
 The primary artifact is the demo executable, which runs a series of TPC-H inspired queries (Filter, Aggregation, Join, Sort, TopN).
 
 ```bash
-# From the build directory
-./VeloxIn10MinDemo
+./build/src/VeloxIn10MinDemo
 ```
 
 ## Development Conventions
