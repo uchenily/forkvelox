@@ -15,13 +15,22 @@ class Operator {
 public:
     Operator(core::PlanNodePtr planNode) : planNode_(planNode) {}
     virtual ~Operator() = default;
+    
+    virtual bool needsInput() const = 0;
     virtual void addInput(RowVectorPtr input) = 0;
+    
+    virtual void noMoreInput() {
+        noMoreInput_ = true;
+    }
+    
     virtual RowVectorPtr getOutput() = 0;
     virtual bool isFinished() = 0;
-    virtual bool needsInput() const { return true; }
+    
     core::PlanNodePtr planNode() const { return planNode_; }
+
 protected:
     core::PlanNodePtr planNode_;
+    bool noMoreInput_ = false;
 };
 
 class ValuesOperator : public Operator {
@@ -31,6 +40,7 @@ public:
         values_ = valuesNode->values();
     }
     void addInput(RowVectorPtr input) override {}
+    void noMoreInput() override { noMoreInput_ = true; }
     RowVectorPtr getOutput() override { if (current_ < values_.size()) return values_[current_++]; return nullptr; }
     bool isFinished() override { return current_ >= values_.size(); }
     bool needsInput() const override { return false; }
@@ -49,7 +59,9 @@ public:
             columnNames_.push_back(name);
         }
     }
+    bool needsInput() const override { return !noMoreInput_; }
     void addInput(RowVectorPtr input) override { if (input && input->size() > 0) batches_.push_back(input); }
+    void noMoreInput() override { noMoreInput_ = true; finished_ = true; }
     RowVectorPtr getOutput() override {
         if (!finished_ || produced_) return nullptr;
         std::vector<std::pair<int, int>> rowIndices;
@@ -86,7 +98,6 @@ public:
         produced_ = true; return result;
     }
     bool isFinished() override { return produced_; }
-    void noMoreInput() { finished_ = true; }
 private:
     std::vector<RowVectorPtr> batches_;
     std::vector<std::string> columnNames_;
@@ -105,7 +116,9 @@ public:
             columnNames_.push_back(name);
         }
     }
+    bool needsInput() const override { return !noMoreInput_; }
     void addInput(RowVectorPtr input) override { if (input && input->size() > 0) batches_.push_back(input); }
+    void noMoreInput() override { noMoreInput_ = true; finished_ = true; }
     RowVectorPtr getOutput() override {
         if (!finished_ || produced_) return nullptr;
         std::vector<std::pair<int, int>> rowIndices;
@@ -143,7 +156,6 @@ public:
         produced_ = true; return result;
     }
     bool isFinished() override { return produced_; }
-    void noMoreInput() { finished_ = true; }
 private:
     std::vector<RowVectorPtr> batches_;
     std::vector<std::string> columnNames_;
@@ -159,6 +171,7 @@ public:
         std::vector<core::TypedExprPtr> exprs = {filterNode->filter()};
         exprSet_ = std::make_unique<ExprSet>(exprs, ctx);
     }
+    bool needsInput() const override { return !noMoreInput_; }
     void addInput(RowVectorPtr input) override {
         if (!input || input->size() == 0) return;
         EvalCtx evalCtx(ctx_, exprSet_.get(), input.get());
@@ -184,9 +197,9 @@ public:
         }
         input_ = std::make_shared<RowVector>(pool, rowType, nullptr, selected.size(), children);
     }
+    void noMoreInput() override { noMoreInput_ = true; finished_ = true; }
     RowVectorPtr getOutput() override { auto result = input_; input_ = nullptr; return result; }
     bool isFinished() override { return finished_; }
-    void noMoreInput() { finished_ = true; }
 private:
     RowVectorPtr input_;
     core::ExecCtx* ctx_;
@@ -210,6 +223,7 @@ public:
             }
         }
     }
+    bool needsInput() const override { return !noMoreInput_; }
     void addInput(RowVectorPtr input) override {
         if (!input || input->size() == 0) return;
         hasInput_ = true;
@@ -242,6 +256,7 @@ public:
             }
         }
     }
+    void noMoreInput() override { noMoreInput_ = true; finished_ = true; }
     RowVectorPtr getOutput() override {
         if (!finished_ || produced_) return nullptr;
         if (!global_ && !hasInput_) { produced_ = true; return nullptr; }
@@ -276,7 +291,6 @@ public:
         produced_ = true; return std::make_shared<RowVector>(pool, rowType, nullptr, numGroups, outCols);
     }
     bool isFinished() override { return produced_; }
-    void noMoreInput() { finished_ = true; }
 private:
     struct AggRes { int64_t sum = 0, count = 0; };
     struct GroupState { std::vector<AggRes> aggResults; vector_size_t rowIdx; std::vector<VectorPtr> groupVecs; };
@@ -288,10 +302,11 @@ private:
 class PassThroughOperator : public Operator {
 public:
     PassThroughOperator(core::PlanNodePtr node) : Operator(node) {}
+    bool needsInput() const override { return !noMoreInput_; }
     void addInput(RowVectorPtr input) override { input_ = input; }
+    void noMoreInput() override { noMoreInput_ = true; finished_ = true; }
     RowVectorPtr getOutput() override { auto res = input_; input_ = nullptr; return res; }
     bool isFinished() override { return finished_; }
-    void noMoreInput() { finished_ = true; }
 private:
     RowVectorPtr input_; bool finished_ = false;
 };
@@ -299,7 +314,9 @@ private:
 class HashJoinOperator : public Operator {
 public:
     HashJoinOperator(core::PlanNodePtr node, core::ExecCtx* ctx) : Operator(node), ctx_(ctx) {}
+    bool needsInput() const override { return !noMoreInput_; }
     void addInput(RowVectorPtr input) override { if (input) probeBatches_.push_back(input); }
+    void noMoreInput() override { noMoreInput_ = true; finished_ = true; }
     void setBuildSide(std::vector<RowVectorPtr> buildBatches) { buildBatches_ = std::move(buildBatches); }
     RowVectorPtr getOutput() override {
         if (!finished_ || produced_) return nullptr;
@@ -324,7 +341,6 @@ public:
         produced_ = true; if (results.empty()) return nullptr; return results[0]; 
     }
     bool isFinished() override { return produced_; }
-    void noMoreInput() { finished_ = true; }
 private:
     std::vector<RowVectorPtr> probeBatches_, buildBatches_; core::ExecCtx* ctx_; bool finished_ = false, produced_ = false;
 };

@@ -37,17 +37,9 @@ public:
                      std::cout << "[Driver] Source finished." << std::endl;
                      // Propagate finish
                      for (size_t i = 1; i < operators_.size(); ++i) {
-                         // Need to cast to specific operators to call noMoreInput?
-                         // Ideally Operator has a virtual noMoreInput().
-                         // minivelox stub Operator didn't have it generally on base.
-                         // But specialized ones do.
-                         // I will dynamic_cast for now or update Operator.h
-                         if (auto op = std::dynamic_pointer_cast<OrderByOperator>(operators_[i])) op->noMoreInput();
-                         if (auto op = std::dynamic_pointer_cast<TopNOperator>(operators_[i])) op->noMoreInput();
-                         if (auto op = std::dynamic_pointer_cast<FilterOperator>(operators_[i])) op->noMoreInput();
-                         if (auto op = std::dynamic_pointer_cast<AggregationOperator>(operators_[i])) op->noMoreInput();
-                         if (auto op = std::dynamic_pointer_cast<HashJoinOperator>(operators_[i])) op->noMoreInput();
+                         operators_[i]->noMoreInput();
                      }
+
                      
                      // Now flush pipeline
                      progress = true; // Retry loop to flush buffers
