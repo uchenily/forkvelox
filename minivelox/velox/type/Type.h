@@ -125,4 +125,8 @@ inline std::shared_ptr<const RowType> ROW(std::vector<std::string> names, std::v
     return std::make_shared<RowType>(std::move(names), std::move(types));
 }
 
+inline std::shared_ptr<const RowType> asRowType(const std::shared_ptr<const Type>& type) {
+    return std::dynamic_pointer_cast<const RowType>(type);
+}
+
 }
