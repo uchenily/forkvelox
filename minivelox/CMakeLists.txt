@@ -16,6 +16,7 @@ set(COMMON_SOURCES
     vector/SimpleVector.cpp
     vector/RowVector.cpp
     exec/Expr.cpp
+    parse/Expressions.cpp
     # exec/Operator.cpp
     # exec/PlanNode.cpp
     # exec/Driver.cpp
