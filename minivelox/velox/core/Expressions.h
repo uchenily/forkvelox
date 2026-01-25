@@ -1,7 +1,9 @@
 #pragma once
+#include "velox/common/memory/MemoryPool.h"
 #include "velox/core/ITypedExpr.h"
 #include "velox/type/Variant.h"
 #include <vector>
+#include <stdexcept>
 
 namespace facebook::velox::core {
 
@@ -60,15 +62,48 @@ private:
     std::string name_;
 };
 
-// Parsing helper for demo
 class Expressions {
 public:
     static TypedExprPtr inferTypes(const TypedExprPtr& untyped, const std::shared_ptr<const RowType>& rowType, memory::MemoryPool* pool) {
-        // In this simplified version, untyped is already typed because our Parser will return TypedExpr directly.
-        // But Velox uses separate parsing tree. 
-        // For now, just return untyped. 
-        // Real inferTypes resolves types.
-        return untyped;
+        if (auto c = std::dynamic_pointer_cast<ConstantTypedExpr>(untyped)) {
+            return c; // Constants are already typed
+        }
+        
+        if (auto f = std::dynamic_pointer_cast<FieldAccessTypedExpr>(untyped)) {
+            // Lookup field
+            const auto& names = rowType->names();
+            for (size_t i = 0; i < names.size(); ++i) {
+                if (names[i] == f->name()) {
+                    return std::make_shared<FieldAccessTypedExpr>(rowType->childAt(i), f->name());
+                }
+            }
+            throw std::runtime_error("Field not found: " + f->name());
+        }
+        
+        if (auto call = std::dynamic_pointer_cast<CallTypedExpr>(untyped)) {
+            std::vector<TypedExprPtr> typedInputs;
+            for (auto& in : call->inputs()) {
+                typedInputs.push_back(inferTypes(in, rowType, pool));
+            }
+            
+            std::string name = call->name();
+            std::shared_ptr<const Type> type;
+            
+            // Simple type inference
+            if (name == "plus" || name == "minus" || name == "multiply" || name == "mod" || name == "divide") {
+                type = BIGINT(); 
+            } else if (name == "concat" || name == "upper" || name == "substr") {
+                type = VARCHAR();
+            } else if (name == "eq" || name == "neq" || name == "lt" || name == "gt" || name == "lte" || name == "gte") {
+                type = INTEGER();
+            } else {
+                throw std::runtime_error("Unknown function in inference: " + name);
+            }
+            
+            return std::make_shared<CallTypedExpr>(type, std::move(typedInputs), name);
+        }
+        
+        throw std::runtime_error("Unknown expr type in inference");
     }
 };
 

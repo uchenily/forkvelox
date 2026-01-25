@@ -1,60 +1,225 @@
 #pragma once
+#include <string>
+#include <vector>
+#include <memory>
+#include <cctype>
+#include <stdexcept>
+#include <iostream>
+#include <algorithm>
 #include "velox/core/Expressions.h"
 #include "velox/type/Type.h"
 
 namespace facebook::velox::parse {
 
+enum class TokenType {
+    END, IDENTIFIER, NUMBER, 
+    PLUS, MINUS, MUL, DIV, MOD, 
+    LPAREN, RPAREN, COMMA,
+    EQ, NEQ, LT, GT, LTE, GTE
+};
+
+struct Token {
+    TokenType type;
+    std::string text;
+};
+
+class Lexer {
+public:
+    Lexer(const std::string& input) : input_(input), pos_(0) {}
+
+    Token next() {
+        skipWhitespace();
+        if (pos_ >= input_.size()) return {TokenType::END, ""};
+
+        char c = input_[pos_];
+        
+        if (std::isdigit(c)) {
+            size_t start = pos_;
+            while (pos_ < input_.size() && std::isdigit(input_[pos_])) pos_++;
+            return {TokenType::NUMBER, input_.substr(start, pos_ - start)};
+        }
+        
+        if (std::isalpha(c) || c == '_') {
+            size_t start = pos_;
+            while (pos_ < input_.size() && (std::isalnum(input_[pos_]) || input_[pos_] == '_')) pos_++;
+            return {TokenType::IDENTIFIER, input_.substr(start, pos_ - start)};
+        }
+        
+        pos_++;
+        switch (c) {
+            case '+': return {TokenType::PLUS, "+"};
+            case '-': return {TokenType::MINUS, "-"};
+            case '*': return {TokenType::MUL, "*"};
+            case '/': return {TokenType::DIV, "/"};
+            case '%': return {TokenType::MOD, "%"};
+            case '(': return {TokenType::LPAREN, "("};
+            case ')': return {TokenType::RPAREN, ")"};
+            case ',': return {TokenType::COMMA, ","};
+            case '=': 
+                if (pos_ < input_.size() && input_[pos_] == '=') { pos_++; return {TokenType::EQ, "=="}; }
+                throw std::runtime_error("Unexpected char: =");
+            case '!':
+                if (pos_ < input_.size() && input_[pos_] == '=') { pos_++; return {TokenType::NEQ, "!="}; }
+                throw std::runtime_error("Unexpected char: !");
+            case '<':
+                if (pos_ < input_.size() && input_[pos_] == '=') { pos_++; return {TokenType::LTE, "<="}; }
+                return {TokenType::LT, "<"};
+            case '>':
+                if (pos_ < input_.size() && input_[pos_] == '=') { pos_++; return {TokenType::GTE, ">="}; }
+                return {TokenType::GT, ">"};
+        }
+        
+        throw std::runtime_error(std::string("Unexpected char: ") + c);
+    }
+
+private:
+    void skipWhitespace() {
+        while (pos_ < input_.size() && std::isspace(input_[pos_])) pos_++;
+    }
+
+    std::string input_;
+    size_t pos_;
+};
+
 class DuckSqlExpressionsParser {
 public:
     core::TypedExprPtr parseExpr(const std::string& text) {
-        // Stub implementation for demo queries
-        // "a + b" -> Call("plus", Field("a"), Field("b"))
-        // "2 * a + b % 3"
-        // "concat(upper(substr(dow, 1, 1)), substr(dow, 2, 2))"
-        // This is hard to fake generally.
-        // I'll implement a extremely dumb parser or just return special mocked objects based on string match.
-        // The demo is "VeloxIn10MinDemo.cpp".
+        Lexer lexer(text);
+        tokens_.clear();
+        Token t;
+        do {
+            t = lexer.next();
+            tokens_.push_back(t);
+        } while (t.type != TokenType::END);
         
-        if (text == "a + b") {
-             // Assuming a, b are bigint
-             auto a = std::make_shared<core::FieldAccessTypedExpr>(BIGINT(), "a");
-             auto b = std::make_shared<core::FieldAccessTypedExpr>(BIGINT(), "b");
-             return std::make_shared<core::CallTypedExpr>(BIGINT(), std::vector<core::TypedExprPtr>{a, b}, "plus");
+        pos_ = 0;
+        return parseExpression();
+    }
+
+private:
+    std::vector<Token> tokens_;
+    size_t pos_;
+
+    Token current() {
+        if (pos_ < tokens_.size()) return tokens_[pos_];
+        return {TokenType::END, ""};
+    }
+
+    Token consume() {
+        Token t = current();
+        if (pos_ < tokens_.size()) pos_++;
+        return t;
+    }
+
+    bool match(TokenType type) {
+        if (current().type == type) {
+            pos_++;
+            return true;
         }
-        
-        if (text == "2 * a + b % 3") {
-             // (2 * a) + (b % 3)
-             auto a = std::make_shared<core::FieldAccessTypedExpr>(BIGINT(), "a");
-             auto b = std::make_shared<core::FieldAccessTypedExpr>(BIGINT(), "b");
-             auto two = std::make_shared<core::ConstantTypedExpr>(Variant((int64_t)2));
-             auto three = std::make_shared<core::ConstantTypedExpr>(Variant((int64_t)3));
-             
-             auto mult = std::make_shared<core::CallTypedExpr>(BIGINT(), std::vector<core::TypedExprPtr>{two, a}, "multiply");
-             auto mod = std::make_shared<core::CallTypedExpr>(BIGINT(), std::vector<core::TypedExprPtr>{b, three}, "mod");
-             
-             return std::make_shared<core::CallTypedExpr>(BIGINT(), std::vector<core::TypedExprPtr>{mult, mod}, "plus");
+        return false;
+    }
+
+    void expect(TokenType type) {
+        if (!match(type)) throw std::runtime_error("Unexpected token");
+    }
+
+    core::TypedExprPtr parseExpression() {
+        return parseComparison();
+    }
+
+    core::TypedExprPtr parseComparison() {
+        auto left = parseAdditive();
+        while (true) {
+            std::string opName;
+            if (match(TokenType::EQ)) opName = "eq";
+            else if (match(TokenType::NEQ)) opName = "neq";
+            else if (match(TokenType::LT)) opName = "lt";
+            else if (match(TokenType::GT)) opName = "gt";
+            else if (match(TokenType::LTE)) opName = "lte";
+            else if (match(TokenType::GTE)) opName = "gte";
+            else break;
+
+            auto right = parseAdditive();
+            left = std::make_shared<core::CallTypedExpr>(
+                UNKNOWN(),
+                std::vector<core::TypedExprPtr>{left, right},
+                opName);
         }
-        
-        if (text == "concat(upper(substr(dow, 1, 1)), substr(dow, 2, 2))") {
-             auto dow = std::make_shared<core::FieldAccessTypedExpr>(VARCHAR(), "dow");
-             auto one = std::make_shared<core::ConstantTypedExpr>(Variant((int64_t)1));
-             auto two = std::make_shared<core::ConstantTypedExpr>(Variant((int64_t)2));
-             
-             // substr(dow, 1, 1)
-             auto sub1 = std::make_shared<core::CallTypedExpr>(VARCHAR(), std::vector<core::TypedExprPtr>{dow, one, one}, "substr");
-             // upper(...)
-             auto up = std::make_shared<core::CallTypedExpr>(VARCHAR(), std::vector<core::TypedExprPtr>{sub1}, "upper");
-             
-             // substr(dow, 2, 2)
-             auto sub2 = std::make_shared<core::CallTypedExpr>(VARCHAR(), std::vector<core::TypedExprPtr>{dow, two, two}, "substr");
-             
-             return std::make_shared<core::CallTypedExpr>(VARCHAR(), std::vector<core::TypedExprPtr>{up, sub2}, "concat");
+        return left;
+    }
+
+    core::TypedExprPtr parseAdditive() {
+        auto left = parseMultiplicative();
+        while (true) {
+            std::string opName;
+            if (match(TokenType::PLUS)) opName = "plus";
+            else if (match(TokenType::MINUS)) opName = "minus";
+            else break;
+
+            auto right = parseMultiplicative();
+            left = std::make_shared<core::CallTypedExpr>(
+                UNKNOWN(),
+                std::vector<core::TypedExprPtr>{left, right},
+                opName);
         }
-        
-        // ... more mocks ...
-        
-        // Fallback for now
-        return std::make_shared<core::ConstantTypedExpr>(Variant((int64_t)0));
+        return left;
+    }
+
+    core::TypedExprPtr parseMultiplicative() {
+        auto left = parsePrimary();
+        while (true) {
+            std::string opName;
+            if (match(TokenType::MUL)) opName = "multiply";
+            else if (match(TokenType::DIV)) opName = "divide";
+            else if (match(TokenType::MOD)) opName = "mod";
+            else break;
+
+            auto right = parsePrimary();
+            left = std::make_shared<core::CallTypedExpr>(
+                UNKNOWN(),
+                std::vector<core::TypedExprPtr>{left, right},
+                opName);
+        }
+        return left;
+    }
+
+    core::TypedExprPtr parsePrimary() {
+        if (match(TokenType::LPAREN)) {
+            auto expr = parseExpression();
+            expect(TokenType::RPAREN);
+            return expr;
+        }
+
+        if (current().type == TokenType::NUMBER) {
+            int64_t val = std::stoll(consume().text);
+            return std::make_shared<core::ConstantTypedExpr>(Variant(val));
+        }
+
+        if (current().type == TokenType::IDENTIFIER) {
+            std::string name = consume().text;
+            if (match(TokenType::LPAREN)) {
+                // Function call
+                std::vector<core::TypedExprPtr> args;
+                if (current().type != TokenType::RPAREN) {
+                    args.push_back(parseExpression());
+                    while (match(TokenType::COMMA)) {
+                        args.push_back(parseExpression());
+                    }
+                }
+                expect(TokenType::RPAREN);
+                return std::make_shared<core::CallTypedExpr>(
+                    UNKNOWN(),
+                    args,
+                    name);
+            } else {
+                // Field access
+                return std::make_shared<core::FieldAccessTypedExpr>(
+                    UNKNOWN(),
+                    name);
+            }
+        }
+
+        throw std::runtime_error("Unexpected token in primary: " + current().text);
     }
 };
 

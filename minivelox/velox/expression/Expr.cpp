@@ -35,6 +35,16 @@ public:
                 raw[i] = v;
             });
             result = flat;
+        } else if (value_.kind() == TypeKind::INTEGER) {
+            auto flat = std::make_shared<FlatVector<int32_t>>(
+                pool, INTEGER(), nullptr, size, 
+                AlignedBuffer::allocate(size * sizeof(int32_t), pool));
+            int64_t v = value_.value<int64_t>(); // Variant stores int32 as int64 currently
+            auto* raw = flat->mutableRawValues();
+            rows.applyToSelected([&](vector_size_t i) {
+                raw[i] = (int32_t)v;
+            });
+            result = flat;
         } else {
              VELOX_NYI("Constant type not supported in demo yet");
         }
@@ -269,6 +279,40 @@ public:
     }
 };
 
+class EqFunction : public VectorFunction {
+public:
+    void apply(const SelectivityVector& rows, 
+               std::vector<VectorPtr>& args, 
+               const TypePtr& outputType,
+               EvalCtx& context, 
+               VectorPtr& result) const override {
+        // Simplified: assume int64 comparison for now
+        auto left = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[0]);
+        auto right = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[1]);
+        
+        // Output is BOOLEAN (simulated as INTEGER/int32_t usually, or just int64_t for simplicity in this stub)
+        // If outputType is INTEGER, use int32_t. If BIGINT, use int64_t.
+        // My Type inference says INTEGER.
+        
+        // Let's use int32_t for boolean
+        auto flat = std::make_shared<FlatVector<int32_t>>(
+                context.pool(), INTEGER(), nullptr, rows.size(), 
+                AlignedBuffer::allocate(rows.size() * sizeof(int32_t), context.pool()));
+        auto* raw = flat->mutableRawValues();
+        
+        if (left && right) {
+             rows.applyToSelected([&](vector_size_t i) {
+                 raw[i] = (left->valueAt(i) == right->valueAt(i));
+             });
+        } else {
+             // Handle type mismatch or other types if needed (e.g. ConstantVector which is not SimpleVector in my stub yet? 
+             // Ah, ConstantExpr returns FlatVector, so it IS SimpleVector)
+             VELOX_NYI("EqFunction only supports SimpleVector<int64> for now");
+        }
+        result = flat;
+    }
+};
+
 class CallExpr : public Expr {
 public:
     CallExpr(std::string name, std::vector<ExprPtr> inputs, std::shared_ptr<const Type> type)
@@ -295,8 +339,9 @@ public:
             UpperFunction().apply(rows, args, type_, context, result);
         } else if (name_ == "concat") {
             ConcatFunction().apply(rows, args, type_, context, result);
+        } else if (name_ == "eq") {
+            EqFunction().apply(rows, args, type_, context, result);
         } else {
-             // For strings demo, just return null or stub
              VELOX_NYI("Function {}", name_);
         }
     }

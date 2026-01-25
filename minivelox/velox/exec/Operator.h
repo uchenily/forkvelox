@@ -308,15 +308,61 @@ public:
     }
     
     void addInput(RowVectorPtr input) override {
-        input_ = input;
-        if (input_) {
-            EvalCtx evalCtx(ctx_, exprSet_.get(), input_.get());
-            SelectivityVector rows(input_->size());
-            std::vector<VectorPtr> results;
-            exprSet_->eval(rows, evalCtx, results);
-            // Stub filter logic: We should filter based on results[0] (boolean)
-            // For now, pass through as stub or assume true
+        if (!input || input->size() == 0) return;
+        
+        EvalCtx evalCtx(ctx_, exprSet_.get(), input.get());
+        SelectivityVector rows(input->size());
+        std::vector<VectorPtr> results;
+        exprSet_->eval(rows, evalCtx, results);
+        
+        // results[0] is the filter boolean (INTEGER/int32_t)
+        auto filterVec = std::dynamic_pointer_cast<FlatVector<int32_t>>(results[0]);
+        if (!filterVec) return; // Should not happen if type check passed
+        
+        // Count selected
+        size_t count = 0;
+        std::vector<int> selectedIndices;
+        for(size_t i=0; i<input->size(); ++i) {
+            if (filterVec->valueAt(i)) {
+                selectedIndices.push_back(i);
+                count++;
+            }
         }
+        
+        if (count == 0) return; // All filtered out
+        
+        // Create new RowVector with selected rows
+        auto rowType = std::dynamic_pointer_cast<const RowType>(input->type());
+        std::vector<VectorPtr> children;
+        auto pool = ctx_->pool();
+        
+        for(size_t col = 0; col < rowType->size(); ++col) {
+            auto child = input->childAt(col);
+            auto type = child->type();
+            
+            VectorPtr newCol;
+            if (type->kind() == TypeKind::BIGINT) {
+                newCol = std::make_shared<FlatVector<int64_t>>(pool, type, nullptr, count, 
+                        AlignedBuffer::allocate(count * sizeof(int64_t), pool));
+            } else if (type->kind() == TypeKind::VARCHAR) {
+                newCol = std::make_shared<FlatVector<StringView>>(pool, type, nullptr, count, 
+                        AlignedBuffer::allocate(count * sizeof(StringView), pool));
+            } else if (type->kind() == TypeKind::INTEGER) {
+                newCol = std::make_shared<FlatVector<int32_t>>(pool, type, nullptr, count, 
+                        AlignedBuffer::allocate(count * sizeof(int32_t), pool));
+            } else {
+                // Fallback copy or error
+                newCol = std::make_shared<FlatVector<int64_t>>(pool, type, nullptr, count, 
+                        AlignedBuffer::allocate(count * sizeof(int64_t), pool));
+            }
+            
+            for(size_t i=0; i<count; ++i) {
+                newCol->copy(child.get(), selectedIndices[i], i);
+            }
+            children.push_back(newCol);
+        }
+        
+        input_ = std::make_shared<RowVector>(pool, rowType, nullptr, count, children);
     }
     
     RowVectorPtr getOutput() override {

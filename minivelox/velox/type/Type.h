@@ -105,8 +105,6 @@ public:
         if (size() != otherRow->size()) return false;
         for (size_t i = 0; i < size(); ++i) {
             if (!children_[i]->equivalent(*otherRow->children_[i])) return false;
-             // Names usually don't matter for equivalence in some systems, but for exact match yes.
-             // Velox typically checks children types.
         }
         return true;
     }
@@ -116,11 +114,19 @@ private:
     std::vector<TypePtr> children_;
 };
 
+class UnknownType : public Type {
+public:
+    UnknownType() : Type(TypeKind::UNKNOWN) {}
+    std::string toString() const override { return "UNKNOWN"; }
+};
+
 using RowTypePtr = std::shared_ptr<const RowType>;
 
 inline std::shared_ptr<const Type> INTEGER() { return std::make_shared<IntegerType>(); }
 inline std::shared_ptr<const Type> BIGINT() { return std::make_shared<BigIntType>(); }
 inline std::shared_ptr<const Type> VARCHAR() { return std::make_shared<VarcharType>(); }
+inline std::shared_ptr<const Type> UNKNOWN() { return std::make_shared<UnknownType>(); }
+
 inline std::shared_ptr<const RowType> ROW(std::vector<std::string> names, std::vector<TypePtr> types) {
     return std::make_shared<RowType>(std::move(names), std::move(types));
 }

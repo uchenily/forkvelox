@@ -132,7 +132,7 @@ void VeloxIn10MinDemo::run() {
   auto data = makeRowVector({"a", "b", "dow"}, {a, b, dow});
 
   std::cout << std::endl
-            << "> vectors a, b, dow: " << data->toString() << std::endl;
+            << "> vectors a, b, dow: \n" << data->toString() << std::endl;
   // std::cout << data->toString(0, data->size()) << std::endl; 
   // BaseVector::toString(start, end) was implemented in BaseVector.h
 
@@ -153,7 +153,7 @@ void VeloxIn10MinDemo::run() {
 
   auto abc = makeRowVector({"a", "b", "c"}, {a, b, c});
 
-  std::cout << std::endl << "> a, b, a + b: " << abc->toString() << std::endl;
+  std::cout << std::endl << "> a, b, a + b: \n" << abc->toString() << std::endl;
   // std::cout << abc->toString(0, c->size()) << std::endl;
 
   // Let's try a slightly more complex expression: `3 * a + sqrt(b)`.
@@ -168,7 +168,7 @@ void VeloxIn10MinDemo::run() {
   auto abd = makeRowVector({"a", "b", "d"}, {a, b, d});
 
   std::cout << std::endl
-            << "> a, b, 2 * a + b % 3: " << abd->toString() << std::endl;
+            << "> a, b, 2 * a + b % 3: \n" << abd->toString() << std::endl;
   // std::cout << abd->toString(0, d->size()) << std::endl;
 
   // Let's transform 'dow' column into a 3-letter prefix with first letter
@@ -184,7 +184,7 @@ void VeloxIn10MinDemo::run() {
 
   auto shortDow = evaluate(*exprSet, data);
   std::cout << std::endl
-            << "> short days of week: " << shortDow->toString() << std::endl;
+            << "> short days of week: \n" << shortDow->toString() << std::endl;
   // std::cout << shortDow->toString(0, shortDow->size()) << std::endl;
 
   // Queries.
@@ -206,7 +206,7 @@ void VeloxIn10MinDemo::run() {
 
   if (sumAvg) {
       std::cout << std::endl
-                << "> sum and average for a and b: " << sumAvg->toString()
+                << "> sum and average for a and b: \n" << sumAvg->toString()
                 << std::endl;
       // std::cout << sumAvg->toString(0, sumAvg->size()) << std::endl;
   }
@@ -219,7 +219,7 @@ void VeloxIn10MinDemo::run() {
 
   if (sorted) {
       std::cout << std::endl
-                << "> data sorted on 'a' in descending order: "
+                << "> data sorted on 'a' in descending order: \n"
                 << sorted->toString() << std::endl;
       // std::cout << sorted->toString(0, sorted->size()) << std::endl;
   }
@@ -232,7 +232,7 @@ void VeloxIn10MinDemo::run() {
 
   if (top3) {
       std::cout << std::endl
-                << "> top 3 rows as sorted on 'a' in descending order: "
+                << "> top 3 rows as sorted on 'a' in descending order: \n"
                 << top3->toString() << std::endl;
       // std::cout << top3->toString(0, top3->size()) << std::endl;
   }
@@ -244,7 +244,7 @@ void VeloxIn10MinDemo::run() {
 
   if (evenA) {
       std::cout << std::endl
-                << "> rows with even values of 'a': " << evenA->toString()
+                << "> rows with even values of 'a': \n" << evenA->toString()
                 << std::endl;
       // std::cout << evenA->toString(0, evenA->size()) << std::endl;
   }
@@ -265,7 +265,7 @@ void VeloxIn10MinDemo::run() {
 
   if (nations) {
       std::cout << std::endl
-                << "> first 10 rows from TPC-H nation table: "
+                << "> first 10 rows from TPC-H nation table: \n"
                 << nations->toString() << std::endl;
       // std::cout << nations->toString(0, 10) << std::endl;
   }
@@ -308,7 +308,7 @@ void VeloxIn10MinDemo::run() {
 
   if (nationCnt) {
       std::cout << std::endl
-                << "> number of nations per region in TPC-H: "
+                << "> number of nations per region in TPC-H: \n"
                 << nationCnt->toString() << std::endl;
       // std::cout << nationCnt->toString(0, 10) << std::endl;
   }
