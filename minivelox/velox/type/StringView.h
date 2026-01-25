@@ -10,36 +10,30 @@ namespace facebook::velox {
 
 struct StringView {
   uint32_t size_;
-  char prefix_[4];
   union {
-    const char* data;
-    char inline_[8];
+    char inline_[12];
+    struct {
+      char prefix_[4];
+      const char* data_;
+    } external_;
   } value_;
 
   static constexpr uint32_t kPrefixSize = 4;
   static constexpr uint32_t kInlineSize = 12;
 
   StringView() : size_(0) {
-      std::memset(prefix_, 0, kPrefixSize);
-      value_.data = nullptr;
+      std::memset(value_.inline_, 0, kInlineSize);
   }
 
   StringView(const char* data, int32_t len) : size_(len) {
       if (len <= kInlineSize) {
-          std::memcpy(prefix_, data, len);
-          // Zero out the rest
-          if (len < kPrefixSize) {
-              std::memset(prefix_ + len, 0, kPrefixSize - len);
-              std::memset(value_.inline_, 0, 8);
-          } else {
-               std::memcpy(value_.inline_, data + kPrefixSize, len - kPrefixSize);
-               if (len < kInlineSize) {
-                   std::memset(value_.inline_ + (len - kPrefixSize), 0, kInlineSize - len);
-               }
+          std::memcpy(value_.inline_, data, len);
+          if (len < kInlineSize) {
+               std::memset(value_.inline_ + len, 0, kInlineSize - len);
           }
       } else {
-          std::memcpy(prefix_, data, kPrefixSize);
-          value_.data = data;
+          std::memcpy(value_.external_.prefix_, data, kPrefixSize);
+          value_.external_.data_ = data;
       }
   }
 
@@ -52,9 +46,9 @@ struct StringView {
   
   const char* data() const {
       if (isInline()) {
-          return prefix_;
+          return value_.inline_;
       }
-      return value_.data;
+      return value_.external_.data_;
   }
 
   bool isInline() const {
@@ -76,14 +70,16 @@ struct StringView {
   bool operator==(const StringView& other) const {
       if (size_ != other.size_) return false;
       if (size_ == 0) return true;
-      // Compare prefix
-      if (std::memcmp(prefix_, other.prefix_, std::min((uint32_t)size_, kPrefixSize)) != 0) return false;
+      
+      // Compare prefix (first 4 bytes)
+      // inline_[0..3] aligns with external_.prefix_
+      if (std::memcmp(value_.inline_, other.value_.inline_, std::min((uint32_t)size_, kPrefixSize)) != 0) return false;
       
       if (isInline()) {
-          if (size_ <= kPrefixSize) return true; // Already compared
-          return std::memcmp(value_.inline_, other.value_.inline_, size_ - kPrefixSize) == 0;
+          if (size_ <= kPrefixSize) return true; 
+          return std::memcmp(value_.inline_ + kPrefixSize, other.value_.inline_ + kPrefixSize, size_ - kPrefixSize) == 0;
       } else {
-          return std::memcmp(value_.data + kPrefixSize, other.value_.data + kPrefixSize, size_ - kPrefixSize) == 0;
+          return std::memcmp(value_.external_.data_ + kPrefixSize, other.value_.external_.data_ + kPrefixSize, size_ - kPrefixSize) == 0;
       }
   }
   

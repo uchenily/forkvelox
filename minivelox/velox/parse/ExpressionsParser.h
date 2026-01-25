@@ -35,6 +35,22 @@ public:
              return std::make_shared<core::CallTypedExpr>(BIGINT(), std::vector<core::TypedExprPtr>{mult, mod}, "plus");
         }
         
+        if (text == "concat(upper(substr(dow, 1, 1)), substr(dow, 2, 2))") {
+             auto dow = std::make_shared<core::FieldAccessTypedExpr>(VARCHAR(), "dow");
+             auto one = std::make_shared<core::ConstantTypedExpr>(Variant((int64_t)1));
+             auto two = std::make_shared<core::ConstantTypedExpr>(Variant((int64_t)2));
+             
+             // substr(dow, 1, 1)
+             auto sub1 = std::make_shared<core::CallTypedExpr>(VARCHAR(), std::vector<core::TypedExprPtr>{dow, one, one}, "substr");
+             // upper(...)
+             auto up = std::make_shared<core::CallTypedExpr>(VARCHAR(), std::vector<core::TypedExprPtr>{sub1}, "upper");
+             
+             // substr(dow, 2, 2)
+             auto sub2 = std::make_shared<core::CallTypedExpr>(VARCHAR(), std::vector<core::TypedExprPtr>{dow, two, two}, "substr");
+             
+             return std::make_shared<core::CallTypedExpr>(VARCHAR(), std::vector<core::TypedExprPtr>{up, sub2}, "concat");
+        }
+        
         // ... more mocks ...
         
         // Fallback for now

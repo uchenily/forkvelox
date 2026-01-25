@@ -1,5 +1,4 @@
 #pragma once
-#pragma message("Including ExecutionDriver")
 #include "velox/exec/Operator.h"
 #include <vector>
 #include <memory>
