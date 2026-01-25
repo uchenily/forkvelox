@@ -224,57 +224,75 @@ Task::Task(
 
 std::vector<RowVectorPtr> Task::run() {
   VELOX_CHECK(queryCtx_ != nullptr, "QueryCtx must not be null");
-  SourceStateMap sourceStates;
-  collectSourceStates(plan_, queryCtx_->pool(), sourceStates);
 
-  const size_t driverCount = std::max<size_t>(1, maxDrivers_);
-  std::vector<RowVectorPtr> results;
-  std::mutex resultsMutex;
+  auto runPlanWithDrivers = [&](const core::PlanNodePtr& plan) {
+    SourceStateMap sourceStates;
+    collectSourceStates(plan, queryCtx_->pool(), sourceStates);
 
-  auto runDriver = [&](size_t driverId) {
-    core::ExecCtx execCtx(queryCtx_->pool(), queryCtx_.get());
-    std::vector<std::shared_ptr<Operator>> ops;
-    buildPipeline(plan_, ops, &execCtx, sourceStates);
-    std::reverse(ops.begin(), ops.end());
+    const size_t driverCount = std::max<size_t>(1, maxDrivers_);
+    std::vector<RowVectorPtr> results;
+    std::mutex resultsMutex;
 
-    for (auto& op : ops) {
-      if (auto joinOp = std::dynamic_pointer_cast<HashJoinOperator>(op)) {
-        auto joinNode =
-            std::dynamic_pointer_cast<const core::HashJoinNode>(joinOp->planNode());
-        SourceStateMap buildStates;
-        collectSourceStates(joinNode->sources()[1], execCtx.pool(), buildStates);
-        std::vector<std::shared_ptr<Operator>> buildOps;
-        buildPipeline(joinNode->sources()[1], buildOps, &execCtx, buildStates);
-        std::reverse(buildOps.begin(), buildOps.end());
-        ::facebook::velox::exec::Driver buildDriver(buildOps);
-        joinOp->setBuildSide(buildDriver.run());
+    auto runDriver = [&]() {
+      core::ExecCtx execCtx(queryCtx_->pool(), queryCtx_.get());
+      std::vector<std::shared_ptr<Operator>> ops;
+      buildPipeline(plan, ops, &execCtx, sourceStates);
+      std::reverse(ops.begin(), ops.end());
+
+      for (auto& op : ops) {
+        if (auto joinOp = std::dynamic_pointer_cast<HashJoinOperator>(op)) {
+          auto joinNode = std::dynamic_pointer_cast<const core::HashJoinNode>(
+              joinOp->planNode());
+          SourceStateMap buildStates;
+          collectSourceStates(joinNode->sources()[1], execCtx.pool(), buildStates);
+          std::vector<std::shared_ptr<Operator>> buildOps;
+          buildPipeline(joinNode->sources()[1], buildOps, &execCtx, buildStates);
+          std::reverse(buildOps.begin(), buildOps.end());
+          ::facebook::velox::exec::Driver buildDriver(buildOps);
+          joinOp->setBuildSide(buildDriver.run());
+        }
+      }
+
+      ::facebook::velox::exec::Driver driver(ops);
+      auto batches = driver.run();
+      if (!batches.empty()) {
+        std::lock_guard<std::mutex> lock(resultsMutex);
+        results.insert(results.end(), batches.begin(), batches.end());
+      }
+    };
+
+    if (mode_ == ExecutionMode::kParallel && driverCount > 1) {
+      std::vector<std::thread> threads;
+      threads.reserve(driverCount);
+      for (size_t i = 0; i < driverCount; ++i) {
+        threads.emplace_back(runDriver);
+      }
+      for (auto& thread : threads) {
+        thread.join();
+      }
+    } else {
+      for (size_t i = 0; i < driverCount; ++i) {
+        runDriver();
       }
     }
 
-    ::facebook::velox::exec::Driver driver(ops);
-    auto batches = driver.run();
-    if (!batches.empty()) {
-      std::lock_guard<std::mutex> lock(resultsMutex);
-      results.insert(results.end(), batches.begin(), batches.end());
-    }
+    return results;
   };
 
-  if (mode_ == ExecutionMode::kParallel && driverCount > 1) {
-    std::vector<std::thread> threads;
-    threads.reserve(driverCount);
-    for (size_t i = 0; i < driverCount; ++i) {
-      threads.emplace_back(runDriver, i);
-    }
-    for (auto& thread : threads) {
-      thread.join();
-    }
-  } else {
-    for (size_t i = 0; i < driverCount; ++i) {
-      runDriver(i);
-    }
+  if (auto orderBy =
+          std::dynamic_pointer_cast<const core::OrderByNode>(plan_)) {
+    auto upstream = orderBy->sources()[0];
+    auto partial = runPlanWithDrivers(upstream);
+
+    auto valuesNode = std::make_shared<core::ValuesNode>("final_values", partial);
+    std::vector<std::shared_ptr<Operator>> ops;
+    ops.push_back(std::make_shared<ValuesOperator>(valuesNode));
+    ops.push_back(std::make_shared<OrderByOperator>(plan_));
+    ::facebook::velox::exec::Driver driver(ops);
+    return driver.run();
   }
 
-  return results;
+  return runPlanWithDrivers(plan_);
 }
 
 } // namespace facebook::velox::exec
