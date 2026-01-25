@@ -1,0 +1,5 @@
+my_col,name,score
+BIGINT,VARCHAR,INTEGER
+3,alice,10
+1,bob,7
+2,charlie,9

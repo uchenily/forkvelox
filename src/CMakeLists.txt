@@ -1,7 +1,11 @@
 # Define the library
 add_library(velox_common
     velox/common/memory/Memory.cpp
+    velox/common/file/FileSystems.cpp
     velox/io/RowVectorFile.cpp
+    velox/io/CsvReader.cpp
+    velox/dwio/common/ReaderFactory.cpp
+    velox/dwio/csv/RegisterCsvReader.cpp
     velox/expression/Expr.cpp
     velox/expression/FunctionRegistry.cpp
     velox/functions/prestosql/Arithmetic.cpp
@@ -18,3 +22,6 @@ target_link_libraries(VeloxIn10MinDemo velox_common Threads::Threads)
 
 add_executable(ScanAndSortDemo demo/ScanAndSortDemo.cpp)
 target_link_libraries(ScanAndSortDemo velox_common Threads::Threads)
+
+add_executable(ScanCsvDemo demo/ScanCsvDemo.cpp)
+target_link_libraries(ScanCsvDemo velox_common Threads::Threads)
