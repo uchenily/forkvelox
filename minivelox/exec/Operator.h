@@ -3,6 +3,7 @@
 #include "exec/PlanNode.h"
 #include "vector/RowVector.h"
 #include "common/memory/Memory.h"
+#include "core/Context.h"
 
 namespace facebook::velox::exec {
 
@@ -15,12 +16,15 @@ public:
 
     memory::MemoryPool* pool() const { return pool_; }
     DriverCtx* driverCtx() const { return driverCtx_; }
+    core::ExecCtx* execCtx() { return &execCtx_; }
 
 private:
     DriverCtx* driverCtx_;
     core::PlanNodeId planNodeId_;
     int32_t operatorId_;
     memory::MemoryPool* pool_;
+    // Quick hack: embed ExecCtx
+    core::ExecCtx execCtx_{pool_, nullptr}; // QueryCtx null?
 };
 
 class Operator {

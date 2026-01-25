@@ -21,6 +21,7 @@ set(COMMON_SOURCES
     exec/PlanNode.cpp
     exec/Driver.cpp
     exec/Task.cpp
+    exec/Operators.cpp
     # exec/PlanBuilder.cpp
 )
 
