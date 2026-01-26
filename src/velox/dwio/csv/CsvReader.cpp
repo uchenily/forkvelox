@@ -124,6 +124,12 @@ RowVectorPtr buildRowVector(
       pool, rowType, nullptr, rowCount, std::move(children));
 }
 
+std::unique_ptr<std::istream> openFileAsStream(const ReadFile& file) {
+    auto size = file.size();
+    auto content = file.pread(0, size);
+    return std::make_unique<std::stringstream>(content);
+}
+
 } // namespace
 
 CsvReader::CsvReader(
@@ -132,14 +138,14 @@ CsvReader::CsvReader(
     CsvReadOptions options)
     : file_(std::move(file)), pool_(pool), options_(options) {
   VELOX_CHECK(file_ != nullptr, "ReadFile must not be null");
-  auto input = file_->open();
+  auto input = openFileAsStream(*file_);
 
   std::string line;
   if (options_.hasHeader) {
     VELOX_CHECK(
         std::getline(*input, line),
         "Missing header line in {}",
-        file_->path());
+        file_->getName());
   } else {
     VELOX_FAIL("CSV reader requires header line with column names");
   }
@@ -150,7 +156,7 @@ CsvReader::CsvReader(
     VELOX_CHECK(
         std::getline(*input, line),
         "Missing types line in {}",
-        file_->path());
+        file_->getName());
     auto typeNames = splitCsv(line, options_.delimiter);
     bool allTypes = typeNames.size() == names.size();
     if (allTypes) {
@@ -171,7 +177,7 @@ CsvReader::CsvReader(
         firstDataLine_ = line;
         hasFirstDataLine_ = true;
       } else {
-        VELOX_FAIL("Missing or invalid types line in {}", file_->path());
+        VELOX_FAIL("Missing or invalid types line in {}", file_->getName());
       }
     }
   } else {
@@ -205,19 +211,19 @@ void CsvRowReader::ensureInitialized() {
     return;
   }
   VELOX_CHECK(file_ != nullptr, "ReadFile must not be null");
-  input_ = file_->open();
+  input_ = openFileAsStream(*file_);
   std::string line;
   if (options_.hasHeader) {
     VELOX_CHECK(
         std::getline(*input_, line),
         "Missing header line in {}",
-        file_->path());
+        file_->getName());
   }
   if (options_.hasTypes) {
     VELOX_CHECK(
         std::getline(*input_, line),
         "Missing types line in {}",
-        file_->path());
+        file_->getName());
   }
   initialized_ = true;
 }

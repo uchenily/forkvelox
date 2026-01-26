@@ -3,7 +3,7 @@
 #include <memory>
 #include <string>
 
-#include "velox/common/file/FileSystem.h"
+#include "velox/common/file/File.h"
 #include "velox/common/memory/MemoryPool.h"
 #include "velox/vector/BaseVector.h"
 
@@ -22,7 +22,7 @@ public:
       memory::MemoryPool* pool)
       : file_(std::move(file)), pool_(pool) {}
 
-  const std::string& path() const { return file_->path(); }
+  std::string path() const { return file_->getName(); }
   const std::shared_ptr<ReadFile>& file() const { return file_; }
   memory::MemoryPool* memoryPool() const { return pool_; }
 

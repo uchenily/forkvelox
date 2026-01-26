@@ -1,20 +1,150 @@
+/*
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 #pragma once
 
-#include <memory>
-#include <string>
+#include "velox/common/base/Exceptions.h"
+#include "velox/common/base/RuntimeMetrics.h"
+#include "velox/common/file/TokenProvider.h"
+#include "velox/common/memory/MemoryPool.h"
 
-#include "velox/common/file/LocalFileSystem.h"
+#include <functional>
+#include <memory>
+#include <string_view>
+#include <unordered_map>
+#include <optional>
+#include <vector>
+
+#include "folly/container/F14Map.h"
+
+namespace facebook::velox {
+namespace config {
+// Stub ConfigBase
+class ConfigBase {
+ public:
+  virtual ~ConfigBase() = default;
+};
+}
+class ReadFile;
+class WriteFile;
+namespace filesystems::File {
+class IoStats;
+}
+} // namespace facebook::velox
 
 namespace facebook::velox::filesystems {
 
+struct FileOptions {
+  static constexpr std::string_view kFileCreateConfig{"file-create-config"};
+
+  std::unordered_map<std::string, std::string> values{};
+  memory::MemoryPool* pool{nullptr};
+  std::optional<int64_t> fileSize{};
+  bool shouldCreateParentDirectories{false};
+  bool shouldThrowOnFileAlreadyExists{true};
+  bool bufferIo{true};
+  std::optional<std::unordered_map<std::string, std::string>> properties{
+      std::nullopt};
+  File::IoStats* stats{nullptr};
+  std::shared_ptr<std::string> extraFileInfo{nullptr};
+  std::optional<int64_t> readRangeHint{std::nullopt};
+  std::shared_ptr<TokenProvider> tokenProvider{nullptr};
+  folly::F14FastMap<std::string, std::string> fileReadOps{};
+};
+
+struct DirectoryOptions : FileOptions {
+  bool failIfExists{false};
+  static constexpr std::string_view kMakeDirectoryConfig{
+      "make-directory-config"};
+};
+
+struct FileSystemOptions {
+  bool readAheadEnabled{false};
+};
+
+class FileSystem {
+ public:
+  FileSystem(std::shared_ptr<const config::ConfigBase> config)
+      : config_(std::move(config)) {}
+  virtual ~FileSystem() = default;
+
+  virtual std::string name() const = 0;
+
+  virtual std::string_view extractPath(std::string_view path) const {
+    VELOX_NYI("extractPath");
+  }
+
+  virtual std::unique_ptr<ReadFile> openFileForRead(
+      std::string_view path,
+      const FileOptions& options = {}) = 0;
+
+  virtual std::unique_ptr<WriteFile> openFileForWrite(
+      std::string_view path,
+      const FileOptions& options = {}) = 0;
+
+  virtual void remove(std::string_view path) = 0;
+
+  virtual void rename(
+      std::string_view oldPath,
+      std::string_view newPath,
+      bool overwrite = false) = 0;
+
+  virtual bool exists(std::string_view path) = 0;
+
+  virtual bool isDirectory(std::string_view path) const {
+      // Stub implementation
+      return false; 
+  }
+
+  virtual std::vector<std::string> list(std::string_view path) = 0;
+
+  virtual void mkdir(
+      std::string_view path,
+      const DirectoryOptions& options = {}) = 0;
+
+  virtual void rmdir(std::string_view path) = 0;
+
+  virtual void setDirectoryProperty(
+      std::string_view /*path*/,
+      const DirectoryOptions& options = {}) {
+    VELOX_FAIL("setDirectoryProperty not implemented");
+  }
+
+  virtual std::optional<std::string> getDirectoryProperty(
+      std::string_view /*path*/,
+      std::string_view /*propertyKey*/) {
+    VELOX_FAIL("getDirectoryProperty not implemented");
+  }
+
+ protected:
+  std::shared_ptr<const config::ConfigBase> config_;
+};
+
+std::shared_ptr<FileSystem> getFileSystem(
+    std::string_view filename,
+    std::shared_ptr<const config::ConfigBase> config);
+
+bool isPathSupportedByRegisteredFileSystems(const std::string_view& filePath);
+
 void registerFileSystem(
-    const std::string& scheme,
-    std::shared_ptr<FileSystem> fileSystem);
+    std::function<bool(std::string_view)> schemeMatcher,
+    std::function<std::shared_ptr<FileSystem>(
+        std::shared_ptr<const config::ConfigBase>,
+        std::string_view)> fileSystemGenerator);
 
-void registerLocalFileSystem();
-
-std::shared_ptr<FileSystem> getFileSystem(const std::string& path);
-
-std::unique_ptr<ReadFile> openFileForRead(const std::string& path);
+void registerLocalFileSystem(
+    const FileSystemOptions& options = FileSystemOptions());
 
 } // namespace facebook::velox::filesystems

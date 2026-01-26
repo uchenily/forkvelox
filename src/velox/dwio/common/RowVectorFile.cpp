@@ -3,19 +3,28 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
-#include <fstream>
 #include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
+#include <mutex>
 
 #include "velox/buffer/Buffer.h"
 #include "velox/common/base/Exceptions.h"
+#include "velox/common/file/File.h"
+#include "velox/common/file/FileSystems.h"
 #include "velox/type/Type.h"
 #include "velox/vector/FlatVector.h"
 
 namespace facebook::velox::dwio::common {
 namespace {
+
+void ensureFileSystemRegistered() {
+  static std::once_flag flag;
+  std::call_once(flag, []() {
+    filesystems::registerLocalFileSystem();
+  });
+}
 
 std::string trim(std::string value) {
   auto notSpace = [](unsigned char c) { return !std::isspace(c); };
@@ -54,15 +63,20 @@ void writeInternal(
     const std::string& path,
     bool includeHeader,
     bool append) {
-  std::ios::openmode mode = std::ios::out;
-  if (append) {
-    mode |= std::ios::app;
-  } else {
-    mode |= std::ios::trunc;
+  ensureFileSystemRegistered();
+  auto fs = filesystems::getFileSystem(path, nullptr);
+  
+  filesystems::FileOptions options;
+  options.shouldThrowOnFileAlreadyExists = false;
+  options.shouldCreateParentDirectories = true; 
+  
+  auto file = fs->openFileForWrite(path, options);
+  
+  if (!append) {
+      file->truncate(0);
   }
 
-  std::ofstream out(path, mode);
-  VELOX_CHECK(out.is_open(), "Failed to open file: {}", path);
+  std::stringstream out;
 
   auto rowType = asRowType(data.type());
   VELOX_CHECK(rowType != nullptr, "RowVector must have ROW type");
@@ -87,6 +101,9 @@ void writeInternal(
     }
     out << "\n";
   }
+  
+  file->append(out.str());
+  file->close();
 }
 
 } // namespace
@@ -105,8 +122,14 @@ void RowVectorFile::append(
 RowVectorPtr RowVectorFile::read(
     memory::MemoryPool* pool,
     const std::string& path) {
-  std::ifstream in(path);
-  VELOX_CHECK(in.is_open(), "Failed to open file: {}", path);
+  ensureFileSystemRegistered();
+  auto fs = filesystems::getFileSystem(path, nullptr);
+  auto file = fs->openFileForRead(path);
+  
+  // Read entire file content
+  uint64_t fileSize = file->size();
+  std::string content = file->pread(0, fileSize);
+  std::stringstream in(content);
 
   std::string line;
   VELOX_CHECK(std::getline(in, line), "Empty file: {}", path);

@@ -1,74 +1,193 @@
+/*
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #include "velox/common/file/FileSystems.h"
-
-#include <cctype>
-#include <unordered_map>
-
+#include "velox/common/file/File.h"
+#include "folly/executors/CPUThreadPoolExecutor.h"
+#include "folly/synchronization/CallOnce.h"
+#include "folly/system/HardwareConcurrency.h"
 #include "velox/common/base/Exceptions.h"
 
+#include <cstdio>
+#include <filesystem>
+#include <vector>
+
 namespace facebook::velox::filesystems {
+
 namespace {
 
-std::unordered_map<std::string, std::shared_ptr<FileSystem>>& registry() {
-  static std::unordered_map<std::string, std::shared_ptr<FileSystem>> map;
-  return map;
-}
+constexpr std::string_view kFileScheme("file:");
 
-std::string normalizeScheme(std::string scheme) {
-  for (auto& c : scheme) {
-    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  }
-  return scheme;
-}
+using RegisteredFileSystems = std::vector<std::pair<
+    std::function<bool(std::string_view)>,
+    std::function<std::shared_ptr<FileSystem>(
+        std::shared_ptr<const config::ConfigBase>,
+        std::string_view)>>>;
 
-std::string extractScheme(const std::string& path) {
-  auto pos = path.find("://");
-  if (pos != std::string::npos) {
-    return normalizeScheme(path.substr(0, pos));
-  }
-  pos = path.find(':');
-  if (pos != std::string::npos) {
-    return normalizeScheme(path.substr(0, pos));
-  }
-  return "";
-}
-
-std::string stripScheme(const std::string& path) {
-  auto pos = path.find("://");
-  if (pos != std::string::npos) {
-    return path.substr(pos + 3);
-  }
-  pos = path.find(':');
-  if (pos != std::string::npos) {
-    return path.substr(pos + 1);
-  }
-  return path;
+RegisteredFileSystems& registeredFileSystems() {
+  static RegisteredFileSystems* fss = new RegisteredFileSystems();
+  return *fss;
 }
 
 } // namespace
 
 void registerFileSystem(
-    const std::string& scheme,
-    std::shared_ptr<FileSystem> fileSystem) {
-  VELOX_CHECK(fileSystem != nullptr, "FileSystem must not be null");
-  registry()[normalizeScheme(scheme)] = std::move(fileSystem);
+    std::function<bool(std::string_view)> schemeMatcher,
+    std::function<std::shared_ptr<FileSystem>(
+        std::shared_ptr<const config::ConfigBase>,
+        std::string_view)> fileSystemGenerator) {
+  registeredFileSystems().emplace_back(schemeMatcher, fileSystemGenerator);
 }
 
-void registerLocalFileSystem() {
-  auto local = std::make_shared<LocalFileSystem>();
-  registerFileSystem("file", local);
-  registerFileSystem("", local);
+std::shared_ptr<FileSystem> getFileSystem(
+    std::string_view filePath,
+    std::shared_ptr<const config::ConfigBase> properties) {
+  const auto& filesystems = registeredFileSystems();
+  for (const auto& p : filesystems) {
+    if (p.first(filePath)) {
+      return p.second(properties, filePath);
+    }
+  }
+  // Fallback to local file system if no matcher? 
+  // For now fail as per original
+  VELOX_FAIL("No registered file system matched with file path '{}'", filePath);
 }
 
-std::shared_ptr<FileSystem> getFileSystem(const std::string& path) {
-  auto scheme = extractScheme(path);
-  auto it = registry().find(scheme);
-  VELOX_CHECK(it != registry().end(), "FileSystem not registered");
-  return it->second;
+bool isPathSupportedByRegisteredFileSystems(const std::string_view& filePath) {
+  const auto& filesystems = registeredFileSystems();
+  for (const auto& p : filesystems) {
+    if (p.first(filePath)) {
+      return true;
+    }
+  }
+  return false;
 }
 
-std::unique_ptr<ReadFile> openFileForRead(const std::string& path) {
-  auto fs = getFileSystem(path);
-  return fs->openFileForRead(stripScheme(path));
-}
+namespace {
 
+folly::once_flag localFSInstantiationFlag;
+
+class LocalFileSystem : public FileSystem {
+ public:
+  LocalFileSystem(
+      std::shared_ptr<const config::ConfigBase> config,
+      const FileSystemOptions& options)
+      : FileSystem(config) {
+          // Executor init stubbed
+      }
+
+  ~LocalFileSystem() override {}
+
+  std::string name() const override {
+    return "Local FS";
+  }
+
+  inline std::string_view extractPath(std::string_view path) const override {
+    if (path.find(kFileScheme) == 0) {
+      return path.substr(kFileScheme.length());
+    }
+    return path;
+  }
+
+  std::unique_ptr<ReadFile> openFileForRead(
+      std::string_view path,
+      const FileOptions& options) override {
+    return std::make_unique<LocalReadFile>(
+        extractPath(path), nullptr, options.bufferIo);
+  }
+
+  std::unique_ptr<WriteFile> openFileForWrite(
+      std::string_view path,
+      const FileOptions& options) override {
+    return std::make_unique<LocalWriteFile>(
+        extractPath(path),
+        options.shouldCreateParentDirectories,
+        options.shouldThrowOnFileAlreadyExists,
+        options.bufferIo);
+  }
+
+  void remove(std::string_view path) override {
+    auto file = extractPath(path);
+    std::remove(std::string(file).c_str());
+  }
+
+  void rename(
+      std::string_view oldPath,
+      std::string_view newPath,
+      bool overwrite) override {
+    auto oldFile = extractPath(oldPath);
+    auto newFile = extractPath(newPath);
+    ::rename(std::string(oldFile).c_str(), std::string(newFile).c_str());
+  }
+
+  bool exists(std::string_view path) override {
+    const auto file = extractPath(path);
+    return std::filesystem::exists(file);
+  }
+
+  bool isDirectory(std::string_view path) const override {
+    const auto file = extractPath(path);
+    return std::filesystem::is_directory(file);
+  }
+
+  virtual std::vector<std::string> list(std::string_view path) override {
+    auto directoryPath = extractPath(path);
+    const std::filesystem::path folder{directoryPath};
+    std::vector<std::string> filePaths;
+    if (std::filesystem::exists(folder) && std::filesystem::is_directory(folder)) {
+        for (auto const& entry : std::filesystem::directory_iterator{folder}) {
+           filePaths.push_back(entry.path());
+        }
+    }
+    return filePaths;
+  }
+
+  void mkdir(std::string_view path, const DirectoryOptions& options) override {
+    std::filesystem::create_directories(path);
+  }
+
+  void rmdir(std::string_view path) override {
+    std::filesystem::remove_all(path);
+  }
+
+  static std::function<bool(std::string_view)> schemeMatcher() {
+    return [](std::string_view filePath) {
+      return filePath.find("/") == 0 || filePath.find(kFileScheme) == 0;
+    };
+  }
+
+  static std::function<std::shared_ptr<
+      FileSystem>(std::shared_ptr<const config::ConfigBase>, std::string_view)>
+  fileSystemGenerator(const FileSystemOptions& options) {
+    return [options](
+               std::shared_ptr<const config::ConfigBase> properties,
+               std::string_view filePath) {
+      static std::shared_ptr<FileSystem> lfs;
+      folly::call_once(localFSInstantiationFlag, [properties, options]() {
+        lfs = std::make_shared<LocalFileSystem>(properties, options);
+      });
+      return lfs;
+    };
+  }
+};
+} // namespace
+
+void registerLocalFileSystem(const FileSystemOptions& options) {
+  registerFileSystem(
+      LocalFileSystem::schemeMatcher(),
+      LocalFileSystem::fileSystemGenerator(options));
+}
 } // namespace facebook::velox::filesystems

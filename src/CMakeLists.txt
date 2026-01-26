@@ -2,7 +2,7 @@
 add_library(velox_common
     velox/common/memory/Memory.cpp
     velox/common/file/FileSystems.cpp
-    velox/common/file/LocalFileSystem.cpp
+    velox/common/file/File.cpp
     velox/dwio/common/RowVectorFile.cpp
     velox/dwio/csv/CsvReader.cpp
     velox/dwio/common/ReaderFactory.cpp

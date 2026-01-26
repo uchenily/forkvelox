@@ -3,7 +3,7 @@
 #include <memory>
 #include <string>
 
-#include "velox/common/file/FileSystem.h"
+#include "velox/common/file/File.h"
 #include "velox/common/memory/MemoryPool.h"
 #include "velox/type/Type.h"
 #include "velox/vector/ComplexVector.h"
