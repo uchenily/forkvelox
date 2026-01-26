@@ -26,16 +26,25 @@ public:
         cancelCheck_ = std::move(cancelCheck);
     }
 
+    void setYieldCheck(std::function<bool()> yieldCheck) {
+        yieldCheck_ = std::move(yieldCheck);
+    }
+
     bool shouldStop() const {
         return cancelCheck_ && cancelCheck_();
     }
-    
-    std::vector<RowVectorPtr> run() {
+
+    BlockingReason run(std::vector<RowVectorPtr>& results) {
         std::cout << "[Driver] Starting execution pipeline." << std::endl;
-        std::vector<RowVectorPtr> results;
         bool progress = true;
         while (progress) {
             progress = false;
+            if (shouldStop()) {
+                return BlockingReason::kCancelled;
+            }
+            if (yieldCheck_ && yieldCheck_()) {
+                return BlockingReason::kYield;
+            }
             
             auto& source = operators_.front();
             std::cout << "[Driver] Pulling from source " << source->planNode()->toString() << std::endl;
@@ -65,6 +74,12 @@ public:
                      progress = true; // Retry loop to flush buffers
                      while(progress) {
                          progress = false;
+                         if (shouldStop()) {
+                             return BlockingReason::kCancelled;
+                         }
+                         if (yieldCheck_ && yieldCheck_()) {
+                             return BlockingReason::kYield;
+                         }
                          for (size_t i = 1; i < operators_.size(); ++i) {
                              auto batch = operators_[i]->getOutput();
                              if (batch) {
@@ -80,12 +95,13 @@ public:
             }
         }
         std::cout << "[Driver] Execution finished." << std::endl;
-        return results;
+        return BlockingReason::kNotBlocked;
     }
     
 private:
     std::vector<std::shared_ptr<Operator>> operators_;
     std::function<bool()> cancelCheck_;
+    std::function<bool()> yieldCheck_;
 };
 
 struct DriverFactory {

@@ -24,7 +24,8 @@ public:
         std::reverse(ops.begin(), ops.end());
 
         ::facebook::velox::exec::Driver driver(ops);
-        auto batches = driver.run();
+        std::vector<RowVectorPtr> batches;
+        driver.run(batches);
         
         if (batches.empty()) {
              return nullptr; 
@@ -171,7 +172,8 @@ private:
         std::reverse(buildOps.begin(), buildOps.end());
         buildOps.push_back(std::make_shared<HashBuildOperator>(node, bridge));
         ::facebook::velox::exec::Driver buildDriver(buildOps);
-        buildDriver.run();
+        std::vector<RowVectorPtr> buildResults;
+        buildDriver.run(buildResults);
     }
 
     core::PlanNodePtr planNode_;

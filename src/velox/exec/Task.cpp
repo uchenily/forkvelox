@@ -601,7 +601,12 @@ std::vector<RowVectorPtr> Task::run() {
               return makeOperatorForNode(
                   node, ctx, sourceStates, bridges, exchanges);
             });
-        auto batches = driver->run();
+        driver->setCancelCheck([&]() { return shouldStop(); });
+        std::vector<RowVectorPtr> batches;
+        auto reason = driver->run(batches);
+        if (reason == BlockingReason::kCancelled) {
+          requestCancel();
+        }
         if (driverFactories[pipelineId]->outputPipeline && !batches.empty()) {
           std::lock_guard<std::mutex> lock(resultsMutex);
           results.insert(results.end(), batches.begin(), batches.end());
