@@ -49,3 +49,6 @@ target_link_libraries(AggregationStepDemo velox_common Threads::Threads)
 
 add_executable(VectorReaderWriterDemo demo/VectorReaderWriterDemo.cpp)
 target_link_libraries(VectorReaderWriterDemo velox_common Threads::Threads)
+
+add_executable(CancellationRequeueDemo demo/CancellationRequeueDemo.cpp)
+target_link_libraries(CancellationRequeueDemo velox_common Threads::Threads)
