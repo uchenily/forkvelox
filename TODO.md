@@ -1,0 +1,8 @@
+- [ ] 完善 Driver 状态
+- [ ] 完善任务调度, Executor
+- [ ] Split queue: 分片队列管理
+- [ ] Driver factory: 动态创建 Driver
+- [ ] Partitioned output: 分区输出
+- [ ] Exchange operators: 跨节点数据交换
+- [ ] DistributedPlanBuilder
+- [ ] 添加 Window Operator
