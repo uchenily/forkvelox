@@ -9,6 +9,7 @@
 #include "velox/exec/LocalExchange.h"
 #include <iostream>
 #include <algorithm>
+#include <mutex>
 #include <sstream>
 #include <unordered_map>
 
@@ -40,6 +41,50 @@ public:
 protected:
     core::PlanNodePtr planNode_;
     bool noMoreInput_ = false;
+};
+
+class HashJoinBridge {
+public:
+    using BuildRow = std::pair<size_t, vector_size_t>;
+
+    void addBuildBatch(const RowVectorPtr& batch) {
+        if (!batch || batch->size() == 0) {
+            return;
+        }
+        auto keyCol = std::dynamic_pointer_cast<SimpleVector<int64_t>>(batch->childAt(0));
+        if (!keyCol) {
+            VELOX_FAIL("HashJoin build side expects int64 key in column 0");
+        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        const size_t batchIndex = buildBatches_.size();
+        buildBatches_.push_back(batch);
+        for (vector_size_t row = 0; row < batch->size(); ++row) {
+            buildIndex_.emplace(keyCol->valueAt(row), BuildRow{batchIndex, row});
+        }
+    }
+
+    void noMoreBuildInput() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        buildFinished_ = true;
+    }
+
+    bool isBuildFinished() const {
+        return buildFinished_;
+    }
+
+    const std::vector<RowVectorPtr>& buildBatches() const {
+        return buildBatches_;
+    }
+
+    const std::unordered_multimap<int64_t, BuildRow>& buildIndex() const {
+        return buildIndex_;
+    }
+
+private:
+    std::vector<RowVectorPtr> buildBatches_;
+    std::unordered_multimap<int64_t, BuildRow> buildIndex_;
+    bool buildFinished_{false};
+    mutable std::mutex mutex_;
 };
 
 class ValuesOperator : public Operator {
@@ -450,38 +495,104 @@ private:
     RowVectorPtr input_; bool finished_ = false;
 };
 
-class HashJoinOperator : public Operator {
+class HashBuildOperator : public Operator {
 public:
-    HashJoinOperator(core::PlanNodePtr node, core::ExecCtx* ctx) : Operator(node), ctx_(ctx) {}
+    HashBuildOperator(core::PlanNodePtr node, std::shared_ptr<HashJoinBridge> bridge)
+        : Operator(node), bridge_(std::move(bridge)) {}
     bool needsInput() const override { return !noMoreInput_; }
-    void addInput(RowVectorPtr input) override { if (input) probeBatches_.push_back(input); }
-    void noMoreInput() override { noMoreInput_ = true; finished_ = true; }
-    void setBuildSide(std::vector<RowVectorPtr> buildBatches) { buildBatches_ = std::move(buildBatches); }
+    void addInput(RowVectorPtr input) override {
+        if (bridge_) {
+            bridge_->addBuildBatch(input);
+        }
+    }
+    void noMoreInput() override {
+        noMoreInput_ = true;
+        if (bridge_) {
+            bridge_->noMoreBuildInput();
+        }
+        finished_ = true;
+    }
+    RowVectorPtr getOutput() override { return nullptr; }
+    bool isFinished() override { return finished_; }
+private:
+    std::shared_ptr<HashJoinBridge> bridge_;
+    bool finished_ = false;
+};
+
+class HashProbeOperator : public Operator {
+public:
+    HashProbeOperator(
+        core::PlanNodePtr node,
+        core::ExecCtx* ctx,
+        std::shared_ptr<HashJoinBridge> bridge)
+        : Operator(node), ctx_(ctx), bridge_(std::move(bridge)) {}
+    bool needsInput() const override { return !noMoreInput_; }
+    void addInput(RowVectorPtr input) override {
+        if (!input || input->size() == 0 || !bridge_) {
+            return;
+        }
+        pendingOutput_ = buildOutput(input);
+    }
+    void noMoreInput() override {
+        noMoreInput_ = true;
+        if (!pendingOutput_) {
+            finished_ = true;
+        }
+    }
     RowVectorPtr getOutput() override {
-        if (!finished_ || produced_) return nullptr;
-        std::vector<RowVectorPtr> results;
-        for (auto& probeBatch : probeBatches_) {
-            auto n_regionkey_col = std::dynamic_pointer_cast<SimpleVector<int64_t>>(probeBatch->childAt(0));
-            for (auto& buildBatch : buildBatches_) {
-                auto r_regionkey_col = std::dynamic_pointer_cast<SimpleVector<int64_t>>(buildBatch->childAt(0));
-                auto r_name_col = std::dynamic_pointer_cast<SimpleVector<StringView>>(buildBatch->childAt(1));
-                std::vector<int> matches;
-                for (int i = 0; i < probeBatch->size(); ++i) {
-                    for (int j = 0; j < buildBatch->size(); ++j) if (n_regionkey_col->valueAt(i) == r_regionkey_col->valueAt(j)) matches.push_back(j);
-                }
-                if (!matches.empty()) {
-                    auto pool = ctx_->pool();
-                    auto outCol = std::make_shared<FlatVector<StringView>>(pool, VARCHAR(), nullptr, matches.size(), AlignedBuffer::allocate(matches.size() * sizeof(StringView), pool));
-                    for(size_t k=0; k<matches.size(); ++k) outCol->copy(r_name_col.get(), matches[k], k);
-                    results.push_back(std::make_shared<RowVector>(pool, ROW({"r_name"}, {VARCHAR()}), nullptr, matches.size(), std::vector<VectorPtr>{outCol}));
-                }
+        auto output = pendingOutput_;
+        pendingOutput_ = nullptr;
+        if (noMoreInput_ && !output) {
+            finished_ = true;
+        }
+        return output;
+    }
+    bool isFinished() override { return finished_; }
+private:
+    RowVectorPtr buildOutput(const RowVectorPtr& probeBatch) {
+        auto probeKeyCol =
+            std::dynamic_pointer_cast<SimpleVector<int64_t>>(probeBatch->childAt(0));
+        if (!probeKeyCol) {
+            VELOX_FAIL("HashJoin probe side expects int64 key in column 0");
+        }
+        std::vector<HashJoinBridge::BuildRow> matches;
+        const auto& index = bridge_->buildIndex();
+        for (vector_size_t row = 0; row < probeBatch->size(); ++row) {
+            auto range = index.equal_range(probeKeyCol->valueAt(row));
+            for (auto it = range.first; it != range.second; ++it) {
+                matches.push_back(it->second);
             }
         }
-        produced_ = true; if (results.empty()) return nullptr; return results[0]; 
+        if (matches.empty()) {
+            return nullptr;
+        }
+        auto pool = ctx_->pool();
+        auto outCol = std::make_shared<FlatVector<StringView>>(
+            pool,
+            VARCHAR(),
+            nullptr,
+            matches.size(),
+            AlignedBuffer::allocate(matches.size() * sizeof(StringView), pool));
+        const auto& buildBatches = bridge_->buildBatches();
+        for (size_t i = 0; i < matches.size(); ++i) {
+            const auto& buildRow = matches[i];
+            auto buildBatch = buildBatches[buildRow.first];
+            auto nameCol =
+                std::dynamic_pointer_cast<SimpleVector<StringView>>(buildBatch->childAt(1));
+            outCol->copy(nameCol.get(), buildRow.second, i);
+        }
+        return std::make_shared<RowVector>(
+            pool,
+            ROW({"r_name"}, {VARCHAR()}),
+            nullptr,
+            matches.size(),
+            std::vector<VectorPtr>{outCol});
     }
-    bool isFinished() override { return produced_; }
-private:
-    std::vector<RowVectorPtr> probeBatches_, buildBatches_; core::ExecCtx* ctx_; bool finished_ = false, produced_ = false;
+
+    RowVectorPtr pendingOutput_;
+    core::ExecCtx* ctx_;
+    std::shared_ptr<HashJoinBridge> bridge_;
+    bool finished_ = false;
 };
 
 }

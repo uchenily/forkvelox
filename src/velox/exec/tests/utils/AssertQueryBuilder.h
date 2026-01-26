@@ -15,25 +15,22 @@ public:
     std::shared_ptr<RowVector> copyResults(memory::MemoryPool* pool) {
         auto queryCtx = core::QueryCtx::create();
         core::ExecCtx execCtx(pool, queryCtx.get());
-        
-        std::vector<std::shared_ptr<Operator>> ops;
-        buildPipeline(planNode_, ops, &execCtx);
-        std::reverse(ops.begin(), ops.end());
-        
-        // Check for HashJoin and execute build side
-        for (auto& op : ops) {
-            if (auto joinOp = std::dynamic_pointer_cast<HashJoinOperator>(op)) {
-                auto joinNode = std::dynamic_pointer_cast<const core::HashJoinNode>(joinOp->planNode());
-                // Build side is sources[1]
-                AssertQueryBuilder buildBuilder(joinNode->sources()[1]);
-                std::vector<std::shared_ptr<Operator>> buildOps;
-                buildBuilder.buildPipeline(joinNode->sources()[1], buildOps, &execCtx);
-                std::reverse(buildOps.begin(), buildOps.end());
-                
-                ::facebook::velox::exec::Driver buildDriver(buildOps);
-                joinOp->setBuildSide(buildDriver.run());
-            }
+        auto joinNode = findJoin(planNode_);
+        std::shared_ptr<HashJoinBridge> bridge;
+        if (joinNode) {
+            bridge = std::make_shared<HashJoinBridge>();
+            auto join = std::dynamic_pointer_cast<const core::HashJoinNode>(joinNode);
+            std::vector<std::shared_ptr<Operator>> buildOps;
+            buildPipeline(join->sources()[1], buildOps, &execCtx, bridge);
+            std::reverse(buildOps.begin(), buildOps.end());
+            buildOps.push_back(std::make_shared<HashBuildOperator>(joinNode, bridge));
+            ::facebook::velox::exec::Driver buildDriver(buildOps);
+            buildDriver.run();
         }
+
+        std::vector<std::shared_ptr<Operator>> ops;
+        buildPipeline(planNode_, ops, &execCtx, bridge);
+        std::reverse(ops.begin(), ops.end());
 
         ::facebook::velox::exec::Driver driver(ops);
         auto batches = driver.run();
@@ -102,7 +99,11 @@ private:
         return vec;
     }
 
-    void buildPipeline(core::PlanNodePtr node, std::vector<std::shared_ptr<Operator>>& ops, core::ExecCtx* ctx) {
+    void buildPipeline(
+        core::PlanNodePtr node,
+        std::vector<std::shared_ptr<Operator>>& ops,
+        core::ExecCtx* ctx,
+        const std::shared_ptr<HashJoinBridge>& bridge) {
         if (auto values = std::dynamic_pointer_cast<const core::ValuesNode>(node)) {
             ops.push_back(std::make_shared<ValuesOperator>(node));
         } else if (std::dynamic_pointer_cast<const core::FileScanNode>(node)) {
@@ -118,7 +119,7 @@ private:
         } else if (auto topN = std::dynamic_pointer_cast<const core::TopNNode>(node)) {
             ops.push_back(std::make_shared<TopNOperator>(node));
         } else if (auto join = std::dynamic_pointer_cast<const core::HashJoinNode>(node)) {
-            ops.push_back(std::make_shared<HashJoinOperator>(node, ctx));
+            ops.push_back(std::make_shared<HashProbeOperator>(node, ctx, bridge));
         } else if (auto scan = std::dynamic_pointer_cast<const core::TableScanNode>(node)) {
             RowVectorPtr data;
             if (scan->table() == tpch::Table::TBL_NATION) data = createTpchNation(ctx->pool());
@@ -147,8 +148,23 @@ private:
         
         auto sources = node->sources();
         if (!sources.empty()) {
-            buildPipeline(sources[0], ops, ctx);
+            buildPipeline(sources[0], ops, ctx, bridge);
         }
+    }
+
+    core::PlanNodePtr findJoin(const core::PlanNodePtr& node) {
+        if (!node) {
+            return nullptr;
+        }
+        if (std::dynamic_pointer_cast<const core::HashJoinNode>(node)) {
+            return node;
+        }
+        for (const auto& source : node->sources()) {
+            if (auto found = findJoin(source)) {
+                return found;
+            }
+        }
+        return nullptr;
     }
 
     core::PlanNodePtr planNode_;

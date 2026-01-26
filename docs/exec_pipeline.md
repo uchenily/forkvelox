@@ -35,7 +35,7 @@ Pipeline 1: LocalExchangeSource -> OrderBy
 当前实现（`exec::Task`）采用如下规则：
 
 - 遇到阻塞算子就形成 pipeline 边界。
-- 阻塞算子包括：`OrderBy`、`TopN`、`Aggregation`、`TableWrite`、`HashJoin`。
+- 阻塞算子包括：`OrderBy`、`TopN`、`Aggregation`、`TableWrite`。
 - 非阻塞算子（如 `Filter`）保留在同一 pipeline 内。
 
 ## 4. Pipeline 执行模型
@@ -101,12 +101,10 @@ for each pipeline:
 
 ## 8. HashJoin 的 Pipeline 处理
 
-HashJoin 需先执行 build side：
+HashJoin 会拆成两条 pipeline（对齐 Velox 的 `HashBuild`/`HashProbe` 模型）：
 
-- **Build side**：先完整执行，产生 build batches。
-- **Probe side**：执行时注入 build batches。
-
-此方式与 Velox 的 build/probe 模型一致。
+- **Build pipeline**：build side -> `HashBuildOperator`，只构建 hash 表，不输出数据。
+- **Probe pipeline**：probe side -> `HashProbeOperator`，依赖 build 完成后的 hash 表进行探测输出。
 
 ## 9. Demo 覆盖
 
@@ -121,4 +119,3 @@ HashJoin 需先执行 build side：
 - 聚合的 partial/final pipeline 拆分。
 - Partitioned output pipeline。
 - 按算子限制动态确定 driver 数量。
-
