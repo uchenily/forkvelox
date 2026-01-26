@@ -515,6 +515,22 @@ std::vector<RowVectorPtr> Task::run() {
     }
   }
 
+  for (size_t i = 0; i < dependents.size(); ++i) {
+    std::cout << "[Task] Pipeline " << i << " depends on:";
+    bool hasDeps = false;
+    for (size_t j = 0; j < dependents.size(); ++j) {
+      if (std::find(dependents[j].begin(), dependents[j].end(), i) !=
+          dependents[j].end()) {
+        std::cout << " " << j;
+        hasDeps = true;
+      }
+    }
+    if (!hasDeps) {
+      std::cout << " none";
+    }
+    std::cout << std::endl;
+  }
+
   SourceStateMap sourceStates;
   collectSourceStates(plan_, queryCtx_->pool(), splits_, sourceStates);
 
