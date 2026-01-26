@@ -1,6 +1,8 @@
 #pragma once
 
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -28,6 +30,13 @@ public:
   void addSplit(const core::PlanNodeId& id, exec::Split split);
   void noMoreSplits(const core::PlanNodeId& id);
 
+  void requestCancel();
+  bool isCancelled() const;
+  void setError(std::string message);
+  bool hasError() const;
+  std::string errorMessage() const;
+  bool shouldStop() const;
+
   std::vector<RowVectorPtr> run();
 
 private:
@@ -44,6 +53,9 @@ private:
   size_t maxDrivers_{1};
   std::unordered_map<core::PlanNodeId, std::vector<exec::Split>> splits_;
   std::unordered_set<core::PlanNodeId> noMoreSplits_;
+  std::atomic<bool> cancelled_{false};
+  mutable std::mutex errorMutex_;
+  std::string errorMessage_;
 };
 
 } // namespace facebook::velox::exec

@@ -299,8 +299,40 @@ void Task::noMoreSplits(const core::PlanNodeId& id) {
   noMoreSplits_.insert(id);
 }
 
+void Task::requestCancel() {
+  cancelled_.store(true, std::memory_order_relaxed);
+}
+
+bool Task::isCancelled() const {
+  return cancelled_.load(std::memory_order_relaxed);
+}
+
+void Task::setError(std::string message) {
+  std::lock_guard<std::mutex> lock(errorMutex_);
+  if (errorMessage_.empty()) {
+    errorMessage_ = std::move(message);
+  }
+}
+
+bool Task::hasError() const {
+  std::lock_guard<std::mutex> lock(errorMutex_);
+  return !errorMessage_.empty();
+}
+
+std::string Task::errorMessage() const {
+  std::lock_guard<std::mutex> lock(errorMutex_);
+  return errorMessage_;
+}
+
+bool Task::shouldStop() const {
+  return isCancelled() || hasError();
+}
+
 std::vector<RowVectorPtr> Task::run() {
   VELOX_CHECK(queryCtx_ != nullptr, "QueryCtx must not be null");
+  if (shouldStop()) {
+    return {};
+  }
 
   using HashJoinBridgeMap =
       std::unordered_map<core::PlanNodeId, std::shared_ptr<HashJoinBridge>>;

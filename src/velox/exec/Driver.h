@@ -8,9 +8,27 @@
 
 namespace facebook::velox::exec {
 
+enum class BlockingReason {
+    kNotBlocked,
+    kWaitForSplit,
+    kWaitForExchange,
+    kWaitForJoin,
+    kYield,
+    kCancelled,
+    kTerminated,
+};
+
 class Driver {
 public:
     Driver(std::vector<std::shared_ptr<Operator>> operators) : operators_(std::move(operators)) {}
+    
+    void setCancelCheck(std::function<bool()> cancelCheck) {
+        cancelCheck_ = std::move(cancelCheck);
+    }
+
+    bool shouldStop() const {
+        return cancelCheck_ && cancelCheck_();
+    }
     
     std::vector<RowVectorPtr> run() {
         std::cout << "[Driver] Starting execution pipeline." << std::endl;
@@ -67,6 +85,7 @@ public:
     
 private:
     std::vector<std::shared_ptr<Operator>> operators_;
+    std::function<bool()> cancelCheck_;
 };
 
 struct DriverFactory {
