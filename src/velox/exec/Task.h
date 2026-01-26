@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <latch>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -11,6 +12,7 @@
 #include "velox/core/ExecCtx.h"
 #include "velox/core/PlanNode.h"
 #include "velox/core/QueryCtx.h"
+#include "velox/exec/Driver.h"
 #include "velox/exec/Split.h"
 #include "velox/vector/ComplexVector.h"
 
@@ -45,6 +47,15 @@ private:
       core::PlanNodePtr plan,
       std::shared_ptr<core::QueryCtx> queryCtx,
       ExecutionMode mode);
+
+  void enqueue(
+      folly::Executor* executor,
+      std::shared_ptr<Driver> driver,
+      std::shared_ptr<core::ExecCtx> execCtx,
+      bool outputPipeline,
+      std::vector<RowVectorPtr>* results,
+      std::mutex* resultsMutex,
+      std::shared_ptr<std::latch> done);
 
   std::string taskId_;
   core::PlanNodePtr plan_;

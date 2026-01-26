@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <latch>
 #include <mutex>
@@ -328,6 +329,75 @@ bool Task::shouldStop() const {
   return isCancelled() || hasError();
 }
 
+void Task::enqueue(
+    folly::Executor* executor,
+    std::shared_ptr<Driver> driver,
+    std::shared_ptr<core::ExecCtx> execCtx,
+    bool outputPipeline,
+    std::vector<RowVectorPtr>* results,
+    std::mutex* resultsMutex,
+    std::shared_ptr<std::latch> done) {
+  executor->add([this,
+                 executor,
+                 driver = std::move(driver),
+                 execCtx = std::move(execCtx),
+                 outputPipeline,
+                 results,
+                 resultsMutex,
+                 done = std::move(done)]() mutable {
+    if (shouldStop()) {
+      done->count_down();
+      return;
+    }
+
+    const auto start = std::chrono::steady_clock::now();
+    driver->setYieldCheck([start]() {
+      return std::chrono::steady_clock::now() - start >
+          std::chrono::milliseconds(2);
+    });
+
+    std::vector<RowVectorPtr> batches;
+    BlockingReason reason = BlockingReason::kNotBlocked;
+    try {
+      reason = driver->run(batches);
+    } catch (const std::exception& e) {
+      setError(e.what());
+      reason = BlockingReason::kTerminated;
+    } catch (...) {
+      setError("Driver failed with unknown error");
+      reason = BlockingReason::kTerminated;
+    }
+
+    if (outputPipeline && !batches.empty()) {
+      std::lock_guard<std::mutex> lock(*resultsMutex);
+      results->insert(results->end(), batches.begin(), batches.end());
+    }
+
+    if (reason == BlockingReason::kCancelled) {
+      requestCancel();
+    }
+
+    if (reason == BlockingReason::kYield ||
+        reason == BlockingReason::kWaitForSplit ||
+        reason == BlockingReason::kWaitForExchange ||
+        reason == BlockingReason::kWaitForJoin) {
+      if (!shouldStop()) {
+        enqueue(
+            executor,
+            std::move(driver),
+            std::move(execCtx),
+            outputPipeline,
+            results,
+            resultsMutex,
+            std::move(done));
+        return;
+      }
+    }
+
+    done->count_down();
+  });
+}
+
 std::vector<RowVectorPtr> Task::run() {
   VELOX_CHECK(queryCtx_ != nullptr, "QueryCtx must not be null");
   if (shouldStop()) {
@@ -591,31 +661,28 @@ std::vector<RowVectorPtr> Task::run() {
     ready.pop_back();
     auto& factory = driverFactories[pipelineId];
 
-    std::latch done(factory->numDrivers);
+    auto done = std::make_shared<std::latch>(factory->numDrivers);
     for (size_t driverId = 0; driverId < factory->numDrivers; ++driverId) {
-      executor->add([&, pipelineId]() {
-        core::ExecCtx execCtx(queryCtx_->pool(), queryCtx_.get());
-        auto driver = driverFactories[pipelineId]->createDriver(
-            &execCtx,
-            [&](const core::PlanNodePtr& node, core::ExecCtx* ctx) {
-              return makeOperatorForNode(
-                  node, ctx, sourceStates, bridges, exchanges);
-            });
-        driver->setCancelCheck([&]() { return shouldStop(); });
-        std::vector<RowVectorPtr> batches;
-        auto reason = driver->run(batches);
-        if (reason == BlockingReason::kCancelled) {
-          requestCancel();
-        }
-        if (driverFactories[pipelineId]->outputPipeline && !batches.empty()) {
-          std::lock_guard<std::mutex> lock(resultsMutex);
-          results.insert(results.end(), batches.begin(), batches.end());
-        }
-        done.count_down();
-      });
+      auto execCtx =
+          std::make_shared<core::ExecCtx>(queryCtx_->pool(), queryCtx_.get());
+      auto driver = driverFactories[pipelineId]->createDriver(
+          execCtx.get(),
+          [&](const core::PlanNodePtr& node, core::ExecCtx* ctx) {
+            return makeOperatorForNode(
+                node, ctx, sourceStates, bridges, exchanges);
+          });
+      driver->setCancelCheck([&]() { return shouldStop(); });
+      enqueue(
+          executor,
+          std::move(driver),
+          std::move(execCtx),
+          driverFactories[pipelineId]->outputPipeline,
+          &results,
+          &resultsMutex,
+          done);
     }
 
-    done.wait();
+    done->wait();
 
     for (auto dependent : dependents[pipelineId]) {
       if (--indegree[dependent] == 0) {
