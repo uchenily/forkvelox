@@ -19,9 +19,34 @@ public:
 
     PlanBuilder& singleAggregation(
         const std::vector<std::string>& groupingKeys,
-        const std::vector<std::string>& aggregates) {
-        root_ = std::make_shared<core::AggregationNode>(generator_->next(), root_, groupingKeys, aggregates);
+        const std::vector<std::string>& aggregates,
+        core::AggregationNode::Step step = core::AggregationNode::Step::kSingle) {
+        root_ = std::make_shared<core::AggregationNode>(
+            generator_->next(), root_, groupingKeys, aggregates, step);
         return *this;
+    }
+
+    PlanBuilder& partialAggregation(
+        const std::vector<std::string>& groupingKeys,
+        const std::vector<std::string>& aggregates) {
+        return singleAggregation(
+            groupingKeys, aggregates, core::AggregationNode::Step::kPartial);
+    }
+
+    PlanBuilder& intermediateAggregation(
+        const std::vector<std::string>& groupingKeys,
+        const std::vector<std::string>& aggregates) {
+        return singleAggregation(
+            groupingKeys,
+            aggregates,
+            core::AggregationNode::Step::kIntermediate);
+    }
+
+    PlanBuilder& finalAggregation(
+        const std::vector<std::string>& groupingKeys,
+        const std::vector<std::string>& aggregates) {
+        return singleAggregation(
+            groupingKeys, aggregates, core::AggregationNode::Step::kFinal);
     }
 
     PlanBuilder& orderBy(const std::vector<std::string>& keys, bool isPartial) {

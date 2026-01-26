@@ -78,6 +78,11 @@ size_t maxDrivers(const DriverFactory& driverFactory, size_t maxDriversHint) {
         return 1;
       }
     }
+    if (auto agg = std::dynamic_pointer_cast<const core::AggregationNode>(node)) {
+      if (!agg->isPartial()) {
+        return 1;
+      }
+    }
     if (std::dynamic_pointer_cast<const core::AggregationNode>(node)) {
       return 1;
     }

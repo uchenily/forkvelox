@@ -403,6 +403,7 @@ public:
         auto aggNode = std::dynamic_pointer_cast<const core::AggregationNode>(node);
         global_ = aggNode->groupingKeys().empty();
         groupingKeys_ = aggNode->groupingKeys();
+        step_ = aggNode->step();
         for(const auto& agg : aggNode->aggregates()) {
             AggregateInfo info; size_t open = agg.find('('), close = agg.find(')'), asPos = agg.find(" AS ");
             if (open != std::string::npos && close != std::string::npos) {
@@ -421,6 +422,61 @@ public:
         for(const auto& key : groupingKeys_) {
             for(int i=0; i<rowType->size(); ++i) if (rowType->nameOf(i) == key) { groupColIndices.push_back(i); break; }
         }
+
+        if (step_ == core::AggregationNode::Step::kFinal ||
+            step_ == core::AggregationNode::Step::kIntermediate) {
+            std::vector<int> aggColIndices;
+            std::vector<int> aggCountIndices;
+            aggColIndices.reserve(aggs_.size());
+            aggCountIndices.reserve(aggs_.size());
+            for (const auto& info : aggs_) {
+                int valueIdx = -1;
+                int countIdx = -1;
+                if (info.func == "avg") {
+                    std::string sumName = info.alias + "_sum";
+                    std::string countName = info.alias + "_count";
+                    for (int i = 0; i < rowType->size(); ++i) {
+                        if (rowType->nameOf(i) == sumName) valueIdx = i;
+                        if (rowType->nameOf(i) == countName) countIdx = i;
+                    }
+                } else {
+                    for (int i = 0; i < rowType->size(); ++i) {
+                        if (rowType->nameOf(i) == info.alias) { valueIdx = i; break; }
+                    }
+                }
+                aggColIndices.push_back(valueIdx);
+                aggCountIndices.push_back(countIdx);
+            }
+
+            for (vector_size_t i = 0; i < input->size(); ++i) {
+                std::string groupKey = "";
+                if (!global_) for (int idx : groupColIndices) groupKey += input->childAt(idx)->toString(i) + "|";
+                auto& group = groups_[groupKey];
+                if (group.aggResults.empty()) {
+                    group.aggResults.resize(aggs_.size());
+                    if (!global_) {
+                        group.rowIdx = i;
+                        for (int idx : groupColIndices) group.groupVecs.push_back(input->childAt(idx));
+                    }
+                }
+                for(size_t j=0; j<aggs_.size(); ++j) {
+                    auto& info = aggs_[j]; auto& res = group.aggResults[j];
+                    if (info.func == "avg") {
+                        auto sumVec = std::dynamic_pointer_cast<SimpleVector<int64_t>>(input->childAt(aggColIndices[j]));
+                        auto countVec = std::dynamic_pointer_cast<SimpleVector<int64_t>>(input->childAt(aggCountIndices[j]));
+                        if (sumVec && countVec) { res.sum += sumVec->valueAt(i); res.count += countVec->valueAt(i); }
+                    } else if (info.func == "sum") {
+                        auto simple = std::dynamic_pointer_cast<SimpleVector<int64_t>>(input->childAt(aggColIndices[j]));
+                        if (simple) { res.sum += simple->valueAt(i); }
+                    } else if (info.func == "count") {
+                        auto simple = std::dynamic_pointer_cast<SimpleVector<int64_t>>(input->childAt(aggColIndices[j]));
+                        if (simple) { res.count += simple->valueAt(i); }
+                    }
+                }
+            }
+            return;
+        }
+
         for (vector_size_t i = 0; i < input->size(); ++i) {
             std::string groupKey = "";
             if (!global_) for (int idx : groupColIndices) groupKey += input->childAt(idx)->toString(i) + "|";
@@ -453,7 +509,22 @@ public:
         std::vector<std::string> outNames = groupingKeys_;
         std::vector<TypePtr> outTypes;
         for(size_t k=0; k<groupingKeys_.size(); ++k) outTypes.push_back(VARCHAR());
-        for(const auto& info : aggs_) { outNames.push_back(info.alias); outTypes.push_back(BIGINT()); }
+        if (step_ == core::AggregationNode::Step::kPartial ||
+            step_ == core::AggregationNode::Step::kIntermediate) {
+            for(const auto& info : aggs_) {
+                if (info.func == "avg") {
+                    outNames.push_back(info.alias + "_sum");
+                    outTypes.push_back(BIGINT());
+                    outNames.push_back(info.alias + "_count");
+                    outTypes.push_back(BIGINT());
+                } else {
+                    outNames.push_back(info.alias);
+                    outTypes.push_back(BIGINT());
+                }
+            }
+        } else {
+            for(const auto& info : aggs_) { outNames.push_back(info.alias); outTypes.push_back(BIGINT()); }
+        }
         size_t numGroups = groups_.size(); if (global_ && numGroups == 0) numGroups = 1;
         std::vector<VectorPtr> outCols;
         for(size_t k=0; k<groupingKeys_.size(); ++k) {
@@ -463,18 +534,53 @@ public:
             outCols.push_back(col);
         }
         for(size_t j=0; j<aggs_.size(); ++j) {
-            auto col = std::make_shared<FlatVector<int64_t>>(pool, BIGINT(), nullptr, numGroups, AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
-            int i = 0;
-            if (groups_.empty() && global_) col->mutableRawValues()[0] = 0;
-            else {
-                for(auto& [key, group] : groups_) {
-                    auto& res = group.aggResults[j];
-                    if (aggs_[j].func == "sum") col->mutableRawValues()[i++] = res.sum;
-                    else if (aggs_[j].func == "count") col->mutableRawValues()[i++] = res.count;
-                    else col->mutableRawValues()[i++] = res.count == 0 ? 0 : (res.sum / res.count);
+            auto& info = aggs_[j];
+            if (step_ == core::AggregationNode::Step::kPartial ||
+                step_ == core::AggregationNode::Step::kIntermediate) {
+                if (info.func == "avg") {
+                    auto sumCol = std::make_shared<FlatVector<int64_t>>(pool, BIGINT(), nullptr, numGroups, AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
+                    auto countCol = std::make_shared<FlatVector<int64_t>>(pool, BIGINT(), nullptr, numGroups, AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
+                    int i = 0;
+                    if (groups_.empty() && global_) {
+                        sumCol->mutableRawValues()[0] = 0;
+                        countCol->mutableRawValues()[0] = 0;
+                    } else {
+                        for(auto& [key, group] : groups_) {
+                            auto& res = group.aggResults[j];
+                            sumCol->mutableRawValues()[i] = res.sum;
+                            countCol->mutableRawValues()[i] = res.count;
+                            ++i;
+                        }
+                    }
+                    outCols.push_back(sumCol);
+                    outCols.push_back(countCol);
+                } else {
+                    auto col = std::make_shared<FlatVector<int64_t>>(pool, BIGINT(), nullptr, numGroups, AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
+                    int i = 0;
+                    if (groups_.empty() && global_) col->mutableRawValues()[0] = 0;
+                    else {
+                        for(auto& [key, group] : groups_) {
+                            auto& res = group.aggResults[j];
+                            if (info.func == "sum") col->mutableRawValues()[i++] = res.sum;
+                            else col->mutableRawValues()[i++] = res.count;
+                        }
+                    }
+                    outCols.push_back(col);
                 }
+            } else {
+                auto col = std::make_shared<FlatVector<int64_t>>(pool, BIGINT(), nullptr, numGroups, AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
+                int i = 0;
+                if (groups_.empty() && global_) col->mutableRawValues()[0] = 0;
+                else {
+                    for(auto& [key, group] : groups_) {
+                        auto& res = group.aggResults[j];
+                        if (info.func == "sum") col->mutableRawValues()[i++] = res.sum;
+                        else if (info.func == "count") col->mutableRawValues()[i++] = res.count;
+                        else col->mutableRawValues()[i++] = res.count == 0 ? 0 : (res.sum / res.count);
+                    }
+                }
+                outCols.push_back(col);
             }
-            outCols.push_back(col);
         }
         auto rowType = ROW(outNames, outTypes);
         produced_ = true; return std::make_shared<RowVector>(pool, rowType, nullptr, numGroups, outCols);
@@ -486,6 +592,7 @@ private:
     std::vector<AggregateInfo> aggs_; std::vector<std::string> groupingKeys_;
     std::unordered_map<std::string, GroupState> groups_;
     core::ExecCtx* ctx_; bool global_ = true, hasInput_ = false, finished_ = false, produced_ = false;
+    core::AggregationNode::Step step_{core::AggregationNode::Step::kSingle};
 };
 
 class PassThroughOperator : public Operator {

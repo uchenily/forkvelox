@@ -444,7 +444,7 @@ std::vector<RowVectorPtr> Task::run() {
     std::cout << "[Task] Pipeline " << i << " drivers=" << driverFactories[i]->numDrivers
               << (driverFactories[i]->outputPipeline ? " output" : "")
               << (driverFactories[i]->inputDriver ? " input" : "")
-              << " operators: ";
+              << " operators: [";
     bool first = true;
     for (const auto& node : driverFactories[i]->planNodes) {
       if (!first) {
@@ -460,7 +460,7 @@ std::vector<RowVectorPtr> Task::run() {
       }
       std::cout << opNameForNode(driverFactories[i]->consumerNode, true);
     }
-    std::cout << std::endl;
+    std::cout << "]" << std::endl;
   }
 
   std::unordered_map<std::string, size_t> exchangeProducers;

@@ -113,6 +113,7 @@ HashJoin 会拆成两条 pipeline（对齐 Velox 的 `HashBuild`/`HashProbe` 模
 - **OrderByPartialFinalDemo**：验证 partial/final `OrderBy` 拆分与 driver 数量。
 - **TwoHashJoinDemo**：验证同一计划包含两个 HashJoin 的 build/probe 流程。
 - **MultiSplitScanDemo**：验证单 scan 结点通过 addSplit/noMoreSplits 读取多个文件分片。
+- **AggregationStepDemo**：验证聚合的 single/partial/intermediate/final 各阶段行为。
 
 ## 10. 可扩展方向
 
