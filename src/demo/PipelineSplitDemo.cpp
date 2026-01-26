@@ -19,7 +19,7 @@ using namespace facebook::velox;
 using namespace facebook::velox::exec;
 using namespace facebook::velox::exec::test;
 
-// Demo: a single pipeline where OrderBy forces single-driver execution.
+// Demo: a multi-pipeline plan split by LocalPartition/LocalMerge.
 int main(int argc, char** argv) {
   folly::init::Init init{&argc, &argv, false};
 
@@ -50,10 +50,13 @@ int main(int argc, char** argv) {
         pool.get(), rowType, nullptr, batchSize, std::vector<VectorPtr>{vector}));
   }
 
-  // multi-pipelines
+  const std::string exchangeId = "pipeline_split_exchange";
   auto plan = PlanBuilder()
                   .values(batches)
                   .filter("my_col % 2 == 1")
+                  .orderBy({"my_col"}, true)
+                  .localPartition(exchangeId)
+                  .localMerge(exchangeId)
                   .orderBy({"my_col"}, false)
                   .planNode();
 
