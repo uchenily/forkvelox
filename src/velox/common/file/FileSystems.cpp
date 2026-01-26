@@ -165,7 +165,21 @@ class LocalFileSystem : public FileSystem {
 
   static std::function<bool(std::string_view)> schemeMatcher() {
     return [](std::string_view filePath) {
-      return filePath.find("/") == 0 || filePath.find(kFileScheme) == 0;
+      if (filePath.find(kFileScheme) == 0) {
+        return true;
+      }
+      if (filePath.find("/") == 0) {
+        return true;
+      }
+      // Relative paths starting with . or ..
+      if (filePath.find(".") == 0) {
+        return true;
+      }
+      // Assume local if no scheme is present (no colon)
+      if (filePath.find(":") == std::string_view::npos) {
+        return true;
+      }
+      return false;
     };
   }
 
