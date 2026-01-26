@@ -39,7 +39,7 @@ int main(int argc, char** argv) {
   }
 
   std::filesystem::path tempDir =
-      std::filesystem::temp_directory_path() / "minivelox_scan_and_sort";
+      std::filesystem::temp_directory_path() / "forkvelox_scan_and_sort";
   std::filesystem::create_directories(tempDir);
   auto filePath = (tempDir / "scan_and_sort.tsv").string();
 

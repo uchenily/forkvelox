@@ -1,6 +1,6 @@
 # 逻辑计划到执行计划：Pipeline 拆分与并行驱动
 
-本文档总结当前 MiniVelox 的 pipeline 拆分与执行方式，参考 Velox 的 LocalPlanner 模型。
+本文档总结当前 ForkVelox 的 pipeline 拆分与执行方式，参考 Velox 的 LocalPlanner 模型。
 
 ## 1. 核心概念
 

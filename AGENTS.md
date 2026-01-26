@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `src/`: MiniVelox implementation and demos.
+- `src/`: ForkVelox implementation and demos.
   - `src/velox/`: core engine modules (exec, type, vector, dwio, common).
   - `src/demo/`: runnable demos (e.g., `TaskParallelDemo`, `PipelineSplitDemo`).
 - `velox/`: upstream Velox reference sources and docs (read-only reference).

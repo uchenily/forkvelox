@@ -7,11 +7,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This repository contains two related projects:
 
 1. **velox/** - The upstream Meta Velox execution engine (reference only, do NOT modify)
-2. **src/** - MiniVelox/ForkVelox - A lightweight educational re-implementation in C++23
+2. **src/** - ForkVelox/ForkVelox - A lightweight educational re-implementation in C++23
 
-### MiniVelox (src/)
+### ForkVelox (src/)
 
-MiniVelox is a simplified but architecturally faithful re-implementation of Meta Velox's execution engine. Key points:
+ForkVelox is a simplified but architecturally faithful re-implementation of Meta Velox's execution engine. Key points:
 - Written in modern C++23 (no Folly, Thrift, or ProtoBuf dependencies)
 - Maintains Velox's core architectural patterns (Driver-Operator model, vectorized execution, memory pool hierarchy)
 - Uses `justfile` for build commands (located at project root)
@@ -27,7 +27,7 @@ Reference implementation. Read for understanding architecture, but **never modif
 
 ## Build Commands
 
-### MiniVelox (src/)
+### ForkVelox (src/)
 
 ```bash
 # Setup (configure CMake with Ninja)
@@ -217,7 +217,7 @@ Types: `feat`, `fix`, `perf`, `build`, `test`, `docs`, `refactor`, `misc`
 
 Example: `feat(expr): Add support for modulo operator`
 
-### MiniVelox Development Principles
+### ForkVelox Development Principles
 
 1. **No external dependencies** - Use standard library or provided folly stubs
 2. **Architectural fidelity** - Match upstream Velox design patterns

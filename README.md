@@ -1,6 +1,6 @@
-# MiniVelox
+# ForkVelox
 
-MiniVelox 是 Meta Velox 执行引擎的一个精简复刻版本，使用现代 C++23 标准编写。
+ForkVelox 是 Meta Velox 执行引擎的一个重新实现版本，使用现代 C++23 标准编写。
 
 本项目旨在通过从零实现核心组件，深入探索和展示向量化数据库执行引擎的内部架构与工作原理。它严格遵循 Velox 的原始设计理念（如内存池架构、向量化数据结构、表达式求值模型、算子生命周期等），但在实现上进行了简化，移除了 Folly、Thrift、ProtoBuf 等重型第三方依赖，使其轻量级且易于学习。
 
@@ -41,7 +41,7 @@ MiniVelox 是 Meta Velox 执行引擎的一个精简复刻版本，使用现代 
 ## 🛠️ 项目结构
 
 ```text
-minivelox/
+forkvelox/
 ├── demo/               # 演示程序 (VeloxIn10MinDemo)
 ├── folly/              # Folly 库的轻量级兼容桩代码
 ├── velox/
@@ -68,7 +68,7 @@ minivelox/
 
 1.  **进入项目目录**:
     ```bash
-    cd minivelox
+    cd forkvelox
     ```
 
 2.  **构建项目**:

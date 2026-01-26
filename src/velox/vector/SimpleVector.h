@@ -28,7 +28,7 @@ public:
         // Mutable access needs to be handled in FlatVector mostly, but SimpleVector stores rawValues_ pointer usually
         // Actually FlatVector owns the buffer. SimpleVector just views it.
         // We need a virtual setValue? Or cast to FlatVector.
-        // For minivelox, assume FlatVector.
+        // For ForkVelox, assume FlatVector.
         // But this method is in SimpleVector.
         // Let's make it abstract here or cast to FlatVector.
         // Better: implement in FlatVector. But we need it visible here? 
