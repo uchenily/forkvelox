@@ -41,3 +41,6 @@ target_link_libraries(TwoHashJoinDemo velox_common Threads::Threads)
 
 add_executable(OrderByPartialFinalDemo demo/OrderByPartialFinalDemo.cpp)
 target_link_libraries(OrderByPartialFinalDemo velox_common Threads::Threads)
+
+add_executable(MultiSplitScanDemo demo/MultiSplitScanDemo.cpp)
+target_link_libraries(MultiSplitScanDemo velox_common Threads::Threads)

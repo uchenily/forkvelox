@@ -14,6 +14,7 @@
 #include "velox/exec/Driver.h"
 #include "velox/exec/LocalPlanner.h"
 #include "velox/exec/Operator.h"
+#include "velox/exec/Split.h"
 #include "velox/vector/FlatVector.h"
 
 namespace facebook::velox::exec {
@@ -135,26 +136,91 @@ private:
   std::once_flag loadOnce_;
 };
 
+class FileSplitSourceState : public SourceState {
+public:
+  FileSplitSourceState(
+      std::vector<exec::Split> splits,
+      RowTypePtr expectedType,
+      memory::MemoryPool* pool,
+      vector_size_t batchSize)
+      : splits_(std::move(splits)),
+        expectedType_(std::move(expectedType)),
+        pool_(pool),
+        batchSize_(batchSize) {}
+
+  RowVectorPtr next() override {
+    std::call_once(loadOnce_, [&]() { load(); });
+    auto index = next_.fetch_add(1);
+    if (index >= batches_.size()) {
+      return nullptr;
+    }
+    return batches_[index];
+  }
+
+private:
+  void load() {
+    for (const auto& split : splits_) {
+      if (split.path().empty()) {
+        continue;
+      }
+      auto data = dwio::common::RowVectorFile::read(pool_, split.path());
+      if (!data) {
+        continue;
+      }
+      if (expectedType_ && !expectedType_->equivalent(*data->type())) {
+        VELOX_FAIL("File schema does not match expected output type");
+      }
+      if (batchSize_ <= 0 || data->size() <= batchSize_) {
+        batches_.push_back(data);
+        continue;
+      }
+      for (vector_size_t offset = 0; offset < data->size();
+           offset += batchSize_) {
+        auto length = std::min(
+            batchSize_, static_cast<vector_size_t>(data->size() - offset));
+        batches_.push_back(sliceRowVector(*data, offset, length, pool_));
+      }
+    }
+  }
+
+  std::vector<exec::Split> splits_;
+  RowTypePtr expectedType_;
+  memory::MemoryPool* pool_;
+  vector_size_t batchSize_;
+  std::vector<RowVectorPtr> batches_;
+  std::atomic<size_t> next_{0};
+  std::once_flag loadOnce_;
+};
+
 using SourceStateMap =
     std::unordered_map<core::PlanNodeId, std::shared_ptr<SourceState>>;
 
 void collectSourceStates(
     const core::PlanNodePtr& node,
     memory::MemoryPool* pool,
+    const std::unordered_map<core::PlanNodeId, std::vector<exec::Split>>& splits,
     SourceStateMap& states) {
   if (auto values = std::dynamic_pointer_cast<const core::ValuesNode>(node)) {
     states.emplace(values->id(),
                    std::make_shared<ValuesSourceState>(values->values()));
   } else if (auto fileScan =
                  std::dynamic_pointer_cast<const core::FileScanNode>(node)) {
-    states.emplace(
-        fileScan->id(),
-        std::make_shared<FileScanSourceState>(
-            fileScan->path(), fileScan->outputType(), pool, 1024));
+    auto splitIt = splits.find(fileScan->id());
+    if (splitIt != splits.end() && !splitIt->second.empty()) {
+      states.emplace(
+          fileScan->id(),
+          std::make_shared<FileSplitSourceState>(
+              splitIt->second, fileScan->outputType(), pool, 1024));
+    } else {
+      states.emplace(
+          fileScan->id(),
+          std::make_shared<FileScanSourceState>(
+              fileScan->path(), fileScan->outputType(), pool, 1024));
+    }
   }
 
   for (const auto& source : node->sources()) {
-    collectSourceStates(source, pool, states);
+    collectSourceStates(source, pool, splits, states);
   }
 }
 
@@ -223,6 +289,14 @@ Task::Task(
       plan_(std::move(plan)),
       queryCtx_(std::move(queryCtx)),
       mode_(mode) {}
+
+void Task::addSplit(const core::PlanNodeId& id, exec::Split split) {
+  splits_[id].push_back(std::move(split));
+}
+
+void Task::noMoreSplits(const core::PlanNodeId& id) {
+  noMoreSplits_.insert(id);
+}
 
 std::vector<RowVectorPtr> Task::run() {
   VELOX_CHECK(queryCtx_ != nullptr, "QueryCtx must not be null");
@@ -442,7 +516,7 @@ std::vector<RowVectorPtr> Task::run() {
   }
 
   SourceStateMap sourceStates;
-  collectSourceStates(plan_, queryCtx_->pool(), sourceStates);
+  collectSourceStates(plan_, queryCtx_->pool(), splits_, sourceStates);
 
   std::vector<RowVectorPtr> results;
   std::mutex resultsMutex;

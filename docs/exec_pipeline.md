@@ -107,6 +107,7 @@ HashJoin 会拆成两条 pipeline（对齐 Velox 的 `HashBuild`/`HashProbe` 模
 - **TaskParallelDemo**：验证单 pipeline 多 driver 并行（`Values -> Filter`）。
 - **PipelineSplitDemo**：验证单 pipeline + 单 driver 的阻塞算子执行（`Values -> Filter -> OrderBy`）。
 - **TwoHashJoinDemo**：验证同一计划包含两个 HashJoin 的 build/probe 流程。
+- **MultiSplitScanDemo**：验证单 scan 结点通过 addSplit/noMoreSplits 读取多个文件分片。
 
 ## 10. 可扩展方向
 
