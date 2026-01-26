@@ -47,3 +47,6 @@ target_link_libraries(MultiSplitScanDemo velox_common Threads::Threads)
 
 add_executable(AggregationStepDemo demo/AggregationStepDemo.cpp)
 target_link_libraries(AggregationStepDemo velox_common Threads::Threads)
+
+add_executable(VectorReaderWriterDemo demo/VectorReaderWriterDemo.cpp)
+target_link_libraries(VectorReaderWriterDemo velox_common Threads::Threads)

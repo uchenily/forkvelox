@@ -1,6 +1,6 @@
 # ForkVelox
 
-ForkVelox 是 Meta Velox 执行引擎的一个重新实现版本，使用现代 C++23 标准编写。
+ForkVelox 是 Meta Velox 执行引擎的一个重新实现版本，使用现代 C++23 标准编写。完全由AI驱动。
 
 本项目旨在通过从零实现核心组件，深入探索和展示向量化数据库执行引擎的内部架构与工作原理。它严格遵循 Velox 的原始设计理念（如内存池架构、向量化数据结构、表达式求值模型、算子生命周期等），但在实现上进行了简化，移除了 Folly、Thrift、ProtoBuf 等重型第三方依赖，使其轻量级且易于学习。
 
@@ -27,7 +27,7 @@ ForkVelox 是 Meta Velox 执行引擎的一个重新实现版本，使用现代 
 - **向量化计算**：实现了 `ExprSet` 和 `VectorFunction` 框架，支持 `plus`, `multiply`, `mod`, `eq`, `substr`, `upper`, `concat` 等函数。
 
 ### 5. 执行引擎 (Execution Engine)
-- **Pipeline 架构**：实现了基于 **Driver** 和 **Operator** 的 Pull 模型执行流。
+- **Pipeline 架构**：实现了基于 **Driver** 和 **Operator** 的 Pull+Push 模型执行流。
 - **算子实现**：
     - **Values**: 数据源算子。
     - **Filter**: 向量化过滤器。
@@ -73,9 +73,13 @@ forkvelox/
 
 2.  **构建项目**:
     ```bash
-    mkdir -p build && cd build
-    cmake -GNinja ..
-    ninja
+    cmake -GNinja -Bbuild
+    cmake --build build
+    ```
+    或使用 `just`:
+    ```bash
+    just setup
+    just build
     ```
 
 3.  **运行演示**:
@@ -83,24 +87,6 @@ forkvelox/
     ```bash
     ./VeloxIn10MinDemo
     ```
-
-### 预期输出
-你将看到控制台打印出各类向量操作、表达式求值结果以及 TPC-H 聚合查询的执行过程日志：
-
-```text
-> vectors a, b, dow: ...
-> 'a + b' expression: ...
-> sum and average for a and b: {21, 3, 105, 15}
-...
-[Driver] Starting execution pipeline.
-[Driver] Pulling from source Values...
-[Driver] Flushed batch from HashJoin
-[Driver] Flushed batch from Aggregation
-> number of nations per region in TPC-H: 
-{AFRICA, 4}
-{AMERICA, 5}
-...
-```
 
 ## 📚 设计参考
 
