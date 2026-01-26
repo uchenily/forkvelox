@@ -9,8 +9,11 @@ namespace facebook::velox::exec {
 namespace detail {
 
 bool mustStartNewPipeline(
-    const core::PlanNodePtr& /*planNode*/,
+    const core::PlanNodePtr& planNode,
     int32_t sourceId) {
+  if (std::dynamic_pointer_cast<const core::LocalMergeNode>(planNode)) {
+    return true;
+  }
   return sourceId != 0;
 }
 

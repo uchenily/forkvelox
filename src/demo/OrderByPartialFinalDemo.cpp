@@ -82,10 +82,13 @@ int main(int argc, char** argv) {
                          .orderBy({"my_col"}, true)
                          .planNode();
 
-  // Partial + Final OrderBy: final stage forces single driver.
+  // Partial + Final OrderBy with LocalExchange between stages.
+  const std::string exchangeId = "orderby_exchange";
   auto finalPlan = PlanBuilder()
                        .values(batches)
                        .orderBy({"my_col"}, true)
+                       .localPartition(exchangeId)
+                       .localMerge(exchangeId)
                        .orderBy({"my_col"}, false)
                        .planNode();
 

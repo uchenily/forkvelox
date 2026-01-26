@@ -229,12 +229,15 @@ std::vector<RowVectorPtr> Task::run() {
 
   using HashJoinBridgeMap =
       std::unordered_map<core::PlanNodeId, std::shared_ptr<HashJoinBridge>>;
+  using ExchangeQueueMap =
+      std::unordered_map<std::string, std::shared_ptr<LocalExchangeQueue>>;
 
   auto makeOperatorForNode =
       [&](const core::PlanNodePtr& node,
           core::ExecCtx* ctx,
           const SourceStateMap& states,
-          const HashJoinBridgeMap& bridges) -> std::shared_ptr<Operator> {
+          const HashJoinBridgeMap& bridges,
+          const ExchangeQueueMap& exchanges) -> std::shared_ptr<Operator> {
     if (auto values = std::dynamic_pointer_cast<const core::ValuesNode>(node)) {
       auto it = states.find(values->id());
       return std::static_pointer_cast<Operator>(
@@ -275,6 +278,20 @@ std::vector<RowVectorPtr> Task::run() {
       }
       return std::static_pointer_cast<Operator>(
           std::make_shared<HashProbeOperator>(node, ctx, it->second));
+    }
+    if (auto localPartition =
+            std::dynamic_pointer_cast<const core::LocalPartitionNode>(node)) {
+      auto it = exchanges.find(localPartition->exchangeId());
+      VELOX_CHECK(it != exchanges.end(), "Missing LocalExchange queue");
+      return std::static_pointer_cast<Operator>(
+          std::make_shared<LocalExchangeSinkOperator>(node, it->second));
+    }
+    if (auto localMerge =
+            std::dynamic_pointer_cast<const core::LocalMergeNode>(node)) {
+      auto it = exchanges.find(localMerge->exchangeId());
+      VELOX_CHECK(it != exchanges.end(), "Missing LocalExchange queue");
+      return std::static_pointer_cast<Operator>(
+          std::make_shared<LocalExchangeSourceOperator>(node, it->second));
     }
     return std::static_pointer_cast<Operator>(
         std::make_shared<PassThroughOperator>(node));
@@ -321,6 +338,29 @@ std::vector<RowVectorPtr> Task::run() {
               << (driverFactories[i]->inputDriver ? " input" : "") << std::endl;
   }
 
+  std::unordered_map<std::string, size_t> exchangeProducers;
+  std::unordered_map<std::string, size_t> exchangeConsumers;
+  for (size_t i = 0; i < driverFactories.size(); ++i) {
+    for (const auto& node : driverFactories[i]->planNodes) {
+      if (auto localPartition =
+              std::dynamic_pointer_cast<const core::LocalPartitionNode>(node)) {
+        exchangeProducers.emplace(localPartition->exchangeId(), i);
+      } else if (
+          auto localMerge =
+              std::dynamic_pointer_cast<const core::LocalMergeNode>(node)) {
+        exchangeConsumers.emplace(localMerge->exchangeId(), i);
+      }
+    }
+  }
+
+  ExchangeQueueMap exchanges;
+  for (const auto& [exchangeId, pipelineId] : exchangeProducers) {
+    exchanges.emplace(
+        exchangeId,
+        std::make_shared<LocalExchangeQueue>(
+            driverFactories[pipelineId]->numDrivers));
+  }
+
   std::unordered_map<core::PlanNodeId, size_t> buildPipelines;
   for (size_t i = 0; i < driverFactories.size(); ++i) {
     const auto& factory = driverFactories[i];
@@ -339,6 +379,14 @@ std::vector<RowVectorPtr> Task::run() {
       VELOX_CHECK(it != buildPipelines.end(), "Missing build pipeline for join");
       dependents[it->second].push_back(i);
       indegree[i]++;
+    }
+  }
+  for (const auto& [exchangeId, producerId] : exchangeProducers) {
+    auto consumerIt = exchangeConsumers.find(exchangeId);
+    if (consumerIt != exchangeConsumers.end()) {
+      auto consumerId = consumerIt->second;
+      dependents[producerId].push_back(consumerId);
+      indegree[consumerId]++;
     }
   }
 
@@ -368,7 +416,8 @@ std::vector<RowVectorPtr> Task::run() {
         auto driver = driverFactories[pipelineId]->createDriver(
             &execCtx,
             [&](const core::PlanNodePtr& node, core::ExecCtx* ctx) {
-              return makeOperatorForNode(node, ctx, sourceStates, bridges);
+              return makeOperatorForNode(
+                  node, ctx, sourceStates, bridges, exchanges);
             });
         auto batches = driver->run();
         if (driverFactories[pipelineId]->outputPipeline && !batches.empty()) {

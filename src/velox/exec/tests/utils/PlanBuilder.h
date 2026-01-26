@@ -52,6 +52,18 @@ public:
         return *this;
     }
 
+    PlanBuilder& localPartition(const std::string& exchangeId) {
+        root_ = std::make_shared<core::LocalPartitionNode>(
+            generator_->next(), root_, exchangeId);
+        return *this;
+    }
+
+    PlanBuilder& localMerge(const std::string& exchangeId) {
+        root_ = std::make_shared<core::LocalMergeNode>(
+            generator_->next(), root_, exchangeId);
+        return *this;
+    }
+
     // Stub for TPCH
     PlanBuilder& tpchTableScan(
                  tpch::Table table,

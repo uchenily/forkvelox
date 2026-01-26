@@ -179,4 +179,36 @@ private:
     PlanNodeId id_;
 };
 
+class LocalPartitionNode : public PlanNode {
+public:
+    LocalPartitionNode(PlanNodeId id, PlanNodePtr source, std::string exchangeId)
+        : id_(std::move(id)),
+          source_(std::move(source)),
+          exchangeId_(std::move(exchangeId)) {}
+    const PlanNodeId& id() const override { return id_; }
+    std::string toString() const override { return "LocalPartition"; }
+    std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {source_}; }
+    const std::string& exchangeId() const { return exchangeId_; }
+private:
+    PlanNodeId id_;
+    PlanNodePtr source_;
+    std::string exchangeId_;
+};
+
+class LocalMergeNode : public PlanNode {
+public:
+    LocalMergeNode(PlanNodeId id, PlanNodePtr source, std::string exchangeId)
+        : id_(std::move(id)),
+          source_(std::move(source)),
+          exchangeId_(std::move(exchangeId)) {}
+    const PlanNodeId& id() const override { return id_; }
+    std::string toString() const override { return "LocalMerge"; }
+    std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {source_}; }
+    const std::string& exchangeId() const { return exchangeId_; }
+private:
+    PlanNodeId id_;
+    PlanNodePtr source_;
+    std::string exchangeId_;
+};
+
 }
