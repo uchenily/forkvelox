@@ -12,6 +12,7 @@
 #include "velox/common/base/Exceptions.h"
 #include "velox/dwio/common/RowVectorFile.h"
 #include "velox/exec/Driver.h"
+#include "velox/exec/LocalPlanner.h"
 #include "velox/exec/Operator.h"
 #include "velox/vector/FlatVector.h"
 
@@ -226,44 +227,6 @@ Task::Task(
 std::vector<RowVectorPtr> Task::run() {
   VELOX_CHECK(queryCtx_ != nullptr, "QueryCtx must not be null");
 
-  auto isBlockingNode = [](const core::PlanNodePtr& node) {
-    return std::dynamic_pointer_cast<const core::OrderByNode>(node) ||
-        std::dynamic_pointer_cast<const core::TopNNode>(node) ||
-        std::dynamic_pointer_cast<const core::AggregationNode>(node) ||
-        std::dynamic_pointer_cast<const core::TableWriteNode>(node);
-  };
-
-  auto linearizeChain = [](core::PlanNodePtr root) {
-    std::vector<core::PlanNodePtr> chain;
-    auto current = root;
-    while (current) {
-      chain.push_back(current);
-      auto sources = current->sources();
-      if (sources.empty()) {
-        break;
-      }
-      current = sources[0];
-    }
-    std::reverse(chain.begin(), chain.end());
-    return chain;
-  };
-
-  auto splitPipelines = [&](const std::vector<core::PlanNodePtr>& chain) {
-    std::vector<std::vector<core::PlanNodePtr>> pipelines;
-    std::vector<core::PlanNodePtr> current;
-    for (const auto& node : chain) {
-      if (!current.empty() && isBlockingNode(node)) {
-        pipelines.push_back(current);
-        current.clear();
-      }
-      current.push_back(node);
-    }
-    if (!current.empty()) {
-      pipelines.push_back(current);
-    }
-    return pipelines;
-  };
-
   using HashJoinBridgeMap =
       std::unordered_map<core::PlanNodeId, std::shared_ptr<HashJoinBridge>>;
 
@@ -317,125 +280,109 @@ std::vector<RowVectorPtr> Task::run() {
         std::make_shared<PassThroughOperator>(node));
   };
 
-  auto runPipelines =
-      [&](const core::PlanNodePtr& plan,
-          const HashJoinBridgeMap& bridges,
-          const std::function<std::shared_ptr<Operator>(core::ExecCtx*)>& tailOpFactory) {
-    SourceStateMap sourceStates;
-    collectSourceStates(plan, queryCtx_->pool(), sourceStates);
-
-    auto chain = linearizeChain(plan);
-    auto pipelineNodes = splitPipelines(chain);
-
-    struct Pipeline {
-      std::vector<core::PlanNodePtr> nodes;
-      std::shared_ptr<LocalExchangeQueue> inputQueue;
-      std::shared_ptr<LocalExchangeQueue> outputQueue;
-      size_t numDrivers{1};
-    };
-
-    std::vector<Pipeline> pipelines;
-    pipelines.reserve(pipelineNodes.size());
-    for (size_t i = 0; i < pipelineNodes.size(); ++i) {
-      Pipeline pipeline{
-          pipelineNodes[i], nullptr, nullptr, std::max<size_t>(1, maxDrivers_)};
-      for (const auto& node : pipeline.nodes) {
-        if (isBlockingNode(node)) {
-          pipeline.numDrivers = 1;
-          break;
+  HashJoinBridgeMap bridges;
+  std::function<void(const core::PlanNodePtr&)> collectJoins =
+      [&](const core::PlanNodePtr& node) {
+        if (!node) {
+          return;
         }
-      }
-      pipelines.push_back(std::move(pipeline));
-    }
-    for (size_t i = 0; i + 1 < pipelines.size(); ++i) {
-      auto queue =
-          std::make_shared<LocalExchangeQueue>(pipelines[i].numDrivers);
-      pipelines[i].outputQueue = queue;
-      pipelines[i + 1].inputQueue = queue;
-    }
+        for (const auto& source : node->sources()) {
+          collectJoins(source);
+        }
+        if (auto join =
+                std::dynamic_pointer_cast<const core::HashJoinNode>(node)) {
+          if (bridges.find(join->id()) == bridges.end()) {
+            bridges.emplace(join->id(), std::make_shared<HashJoinBridge>());
+          }
+        }
+      };
 
-    std::vector<RowVectorPtr> results;
-    std::mutex resultsMutex;
+  collectJoins(plan_);
+
+  std::vector<std::unique_ptr<DriverFactory>> driverFactories;
+  LocalPlanner::plan(plan_, &bridges, &driverFactories, maxDrivers_);
+
+  for (auto& factory : driverFactories) {
+    if (!factory->planNodes.empty() &&
+        factory->planNodes.back()->id() == plan_->id()) {
+      factory->outputPipeline = true;
+    }
+    for (const auto& node : factory->planNodes) {
+      if (std::dynamic_pointer_cast<const core::HashJoinNode>(node)) {
+        factory->probeJoinIds.insert(node->id());
+      }
+    }
+  }
+
+  std::unordered_map<core::PlanNodeId, size_t> buildPipelines;
+  for (size_t i = 0; i < driverFactories.size(); ++i) {
+    const auto& factory = driverFactories[i];
+    if (factory->operatorSupplier &&
+        std::dynamic_pointer_cast<const core::HashJoinNode>(
+            factory->consumerNode)) {
+      buildPipelines.emplace(factory->consumerNode->id(), i);
+    }
+  }
+
+  std::vector<std::vector<size_t>> dependents(driverFactories.size());
+  std::vector<size_t> indegree(driverFactories.size(), 0);
+  for (size_t i = 0; i < driverFactories.size(); ++i) {
+    for (const auto& joinId : driverFactories[i]->probeJoinIds) {
+      auto it = buildPipelines.find(joinId);
+      VELOX_CHECK(it != buildPipelines.end(), "Missing build pipeline for join");
+      dependents[it->second].push_back(i);
+      indegree[i]++;
+    }
+  }
+
+  SourceStateMap sourceStates;
+  collectSourceStates(plan_, queryCtx_->pool(), sourceStates);
+
+  std::vector<RowVectorPtr> results;
+  std::mutex resultsMutex;
+
+  std::vector<size_t> ready;
+  ready.reserve(driverFactories.size());
+  for (size_t i = 0; i < driverFactories.size(); ++i) {
+    if (indegree[i] == 0) {
+      ready.push_back(i);
+    }
+  }
+
+  while (!ready.empty()) {
+    auto pipelineId = ready.back();
+    ready.pop_back();
+    auto& factory = driverFactories[pipelineId];
+
     std::vector<std::thread> threads;
-
-    for (size_t pipelineId = 0; pipelineId < pipelines.size(); ++pipelineId) {
-      auto& pipeline = pipelines[pipelineId];
-      for (size_t driverId = 0; driverId < pipeline.numDrivers; ++driverId) {
-        threads.emplace_back([&, pipelineId]() {
-          core::ExecCtx execCtx(queryCtx_->pool(), queryCtx_.get());
-          std::vector<std::shared_ptr<Operator>> ops;
-
-          if (pipeline.inputQueue) {
-            auto exchangeNode =
-                std::make_shared<core::LocalExchangeNode>("exchange_source");
-            ops.push_back(std::make_shared<LocalExchangeSourceOperator>(
-                exchangeNode, pipeline.inputQueue));
-          }
-
-          for (const auto& node : pipeline.nodes) {
-            ops.push_back(
-                makeOperatorForNode(node, &execCtx, sourceStates, bridges));
-          }
-
-          if (tailOpFactory && pipelineId == pipelines.size() - 1) {
-            ops.push_back(tailOpFactory(&execCtx));
-          }
-
-          if (pipeline.outputQueue) {
-            auto exchangeNode =
-                std::make_shared<core::LocalExchangeNode>("exchange_sink");
-            ops.push_back(std::make_shared<LocalExchangeSinkOperator>(
-                exchangeNode, pipeline.outputQueue));
-          }
-
-          ::facebook::velox::exec::Driver driver(ops);
-          auto batches = driver.run();
-          if (!pipeline.outputQueue && !batches.empty()) {
-            std::lock_guard<std::mutex> lock(resultsMutex);
-            results.insert(results.end(), batches.begin(), batches.end());
-          }
-        });
-      }
+    for (size_t driverId = 0; driverId < factory->numDrivers; ++driverId) {
+      threads.emplace_back([&, pipelineId]() {
+        core::ExecCtx execCtx(queryCtx_->pool(), queryCtx_.get());
+        auto driver = driverFactories[pipelineId]->createDriver(
+            &execCtx,
+            [&](const core::PlanNodePtr& node, core::ExecCtx* ctx) {
+              return makeOperatorForNode(node, ctx, sourceStates, bridges);
+            });
+        auto batches = driver->run();
+        if (driverFactories[pipelineId]->outputPipeline && !batches.empty()) {
+          std::lock_guard<std::mutex> lock(resultsMutex);
+          results.insert(results.end(), batches.begin(), batches.end());
+        }
+      });
     }
 
     for (auto& thread : threads) {
       thread.join();
     }
 
-    return results;
-  };
+    for (auto dependent : dependents[pipelineId]) {
+      if (--indegree[dependent] == 0) {
+        ready.push_back(dependent);
+      }
+    }
+  }
 
-  HashJoinBridgeMap bridges;
-  std::function<void(const core::PlanNodePtr&)> buildJoins =
-      [&](const core::PlanNodePtr& node) {
-        if (!node) {
-          return;
-        }
-        for (const auto& source : node->sources()) {
-          buildJoins(source);
-        }
-        auto join =
-            std::dynamic_pointer_cast<const core::HashJoinNode>(node);
-        if (!join) {
-          return;
-        }
-        if (bridges.find(join->id()) != bridges.end()) {
-          return;
-        }
-        auto bridge = std::make_shared<HashJoinBridge>();
-        bridges.emplace(join->id(), bridge);
-        auto buildNode = join->sources()[1];
-        runPipelines(
-            buildNode,
-            bridges,
-            [&](core::ExecCtx* execCtx) {
-              return std::make_shared<HashBuildOperator>(node, bridge);
-            });
-      };
-
-  buildJoins(plan_);
-
-  return runPipelines(plan_, bridges, {});
+  return results;
 }
 
 } // namespace facebook::velox::exec

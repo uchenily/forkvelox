@@ -9,6 +9,7 @@
 #include "velox/exec/LocalExchange.h"
 #include <iostream>
 #include <algorithm>
+#include <functional>
 #include <mutex>
 #include <sstream>
 #include <unordered_map>
@@ -42,6 +43,8 @@ protected:
     core::PlanNodePtr planNode_;
     bool noMoreInput_ = false;
 };
+
+using OperatorSupplier = std::function<std::shared_ptr<Operator>(core::ExecCtx*)>;
 
 class HashJoinBridge {
 public:

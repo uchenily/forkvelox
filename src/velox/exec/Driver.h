@@ -1,8 +1,10 @@
 #pragma once
 #include "velox/exec/Operator.h"
-#include <vector>
-#include <memory>
+#include <functional>
 #include <iostream>
+#include <memory>
+#include <unordered_set>
+#include <vector>
 
 namespace facebook::velox::exec {
 
@@ -65,6 +67,32 @@ public:
     
 private:
     std::vector<std::shared_ptr<Operator>> operators_;
+};
+
+struct DriverFactory {
+    std::vector<core::PlanNodePtr> planNodes;
+    OperatorSupplier operatorSupplier;
+    core::PlanNodePtr consumerNode;
+    bool inputDriver{false};
+    bool outputPipeline{false};
+    size_t numDrivers{1};
+    std::unordered_set<core::PlanNodeId> probeJoinIds;
+
+    std::shared_ptr<Driver> createDriver(
+        core::ExecCtx* execCtx,
+        const std::function<std::shared_ptr<Operator>(
+            const core::PlanNodePtr&,
+            core::ExecCtx*)>& makeOperator) const {
+        std::vector<std::shared_ptr<Operator>> ops;
+        ops.reserve(planNodes.size() + (operatorSupplier ? 1 : 0));
+        for (const auto& node : planNodes) {
+            ops.push_back(makeOperator(node, execCtx));
+        }
+        if (operatorSupplier) {
+            ops.push_back(operatorSupplier(execCtx));
+        }
+        return std::make_shared<Driver>(std::move(ops));
+    }
 };
 
 }

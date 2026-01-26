@@ -7,7 +7,7 @@
 - **Plan Fragment（计划片段）**：可在一个 Task 中执行的 PlanNode 子树。
 - **Pipeline**：一条不包含全局阻塞算子的线性算子链。
 - **Driver**：执行一个 pipeline 的线程实例，同一 pipeline 可由多个 driver 并行执行。
-- **Local Exchange**：进程内队列，用于把上游 pipeline 的输出传给下游 pipeline。
+- **Local Exchange**：进程内队列，用于把上游 pipeline 的输出传给下游 pipeline（MiniVelox 尚未在 pipeline 拆分中启用）。
 
 ## 2. 逻辑计划与执行计划的映射
 
@@ -23,56 +23,50 @@ Values -> Filter -> OrderBy
 - `Values -> Filter` 为非阻塞链路。
 - `OrderBy` 为阻塞算子。
 
-此计划被拆成两个 pipeline：
+此计划在当前实现中为单 pipeline，但 `OrderBy` 强制单 driver：
 
 ```
-Pipeline 0: Values -> Filter -> LocalExchangeSink
-Pipeline 1: LocalExchangeSource -> OrderBy
+Pipeline 0: Values -> Filter -> OrderBy
 ```
 
 ## 3. Pipeline 拆分规则
 
-当前实现（`exec::Task`）采用如下规则：
+当前实现参考 Velox `LocalPlanner` 的思路：
 
-- 遇到阻塞算子就形成 pipeline 边界。
-- 阻塞算子包括：`OrderBy`、`TopN`、`Aggregation`、`TableWrite`。
-- 非阻塞算子（如 `Filter`）保留在同一 pipeline 内。
+- **按输入源拆分**：同一 PlanNode 的 **非第 0 个 source** 会启动新 pipeline。
+- **Join build pipeline**：`HashJoin` 的 build side 会生成独立 pipeline，尾部追加 `HashBuildOperator`。
+- 单输入链路不会因为阻塞算子拆分 pipeline。
 
 ## 4. Pipeline 执行模型
 
 ### 4.1 每条 Pipeline 的 Driver 数
 
-- 非阻塞 pipeline：可按 `maxDrivers` 并行运行。
-- 阻塞 pipeline：强制单 driver 执行，保证全局正确性。
+单 pipeline 内仍会根据算子特性限制并发：
 
-### 4.2 Local Exchange
+- `OrderBy`、`TopN`、`Aggregation`、`TableWrite` 强制单 driver。
+- 其他算子默认按 `maxDrivers` 并行运行。
 
-`LocalExchangeQueue` 连接上下游 pipeline：
+### 4.2 Pipeline 依赖
 
-- 上游 pipeline 通过 `LocalExchangeSinkOperator` 将批次写入队列。
-- 下游 pipeline 通过 `LocalExchangeSourceOperator` 读取批次。
-- 队列知道生产者数量，上游全部结束后自动关闭。
+Join 的 probe pipeline 依赖其 build pipeline 完成，执行时按依赖顺序调度。
 
 ## 5. Task 执行流程
 
-`Task::run()` 的核心流程：
+`Task::run()` 的核心流程（参考 `LocalPlanner`）：
 
-1. **线性化计划**（从源到根构成链）。
-2. **按阻塞算子拆分 pipeline**。
-3. **在 pipeline 之间创建 Local Exchange**。
-4. **为每条 pipeline 创建 drivers 并发执行**。
-5. **只收集最后一个 pipeline 的输出**。
+1. **遍历计划树**，按非第 0 个 source 拆分 pipeline。
+2. **为 HashJoin build side 追加 HashBuildOperator**。
+3. **根据依赖顺序执行 pipeline**。
+4. **只收集输出 pipeline 的结果**。
 
 伪流程如下：
 
 ```
-plan -> [nodes]
-(nodes) -> [pipelines]
-相邻 pipeline 之间用 LocalExchange 连接
-for each pipeline:
+plan -> [pipelines]
+for each pipeline in dependency order:
   启动 N 个 driver
   driver 执行自己的算子链
-收集最后 pipeline 的输出
+收集输出 pipeline 的结果
 ```
 
 ## 6. Pipeline 内并行
@@ -92,7 +86,7 @@ for each pipeline:
 
 ## 7. 阻塞算子与全局正确性
 
-阻塞算子所在 pipeline 使用单 driver，确保全局结果正确：
+阻塞算子会强制所在 pipeline 使用单 driver，确保全局结果正确：
 
 - `OrderBy`：全局排序
 - `TopN`：全局 Top-K
@@ -111,7 +105,8 @@ HashJoin 会拆成两条 pipeline（对齐 Velox 的 `HashBuild`/`HashProbe` 模
 ## 9. Demo 覆盖
 
 - **TaskParallelDemo**：验证单 pipeline 多 driver 并行（`Values -> Filter`）。
-- **PipelineSplitDemo**：验证 pipeline 拆分与阻塞算子全局合并（`Values -> Filter -> OrderBy`）。
+- **PipelineSplitDemo**：验证单 pipeline + 单 driver 的阻塞算子执行（`Values -> Filter -> OrderBy`）。
+- **TwoHashJoinDemo**：验证同一计划包含两个 HashJoin 的 build/probe 流程。
 
 ## 10. 可扩展方向
 

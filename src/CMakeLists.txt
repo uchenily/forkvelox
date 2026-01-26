@@ -8,6 +8,7 @@ add_library(velox_common
     velox/dwio/common/ReaderFactory.cpp
     velox/dwio/csv/RegisterCsvReader.cpp
     velox/exec/LocalExchange.cpp
+    velox/exec/LocalPlanner.cpp
     velox/exec/Task.cpp
     velox/expression/Expr.cpp
     velox/expression/FunctionRegistry.cpp

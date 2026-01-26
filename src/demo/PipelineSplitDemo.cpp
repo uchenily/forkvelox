@@ -19,10 +19,7 @@ using namespace facebook::velox;
 using namespace facebook::velox::exec;
 using namespace facebook::velox::exec::test;
 
-// Demo: a plan fragment split into two pipelines:
-//   Values -> Filter (pipeline 0, parallel)
-//   OrderBy (pipeline 1, global)
-// Expect multiple Driver runs printed for each pipeline.
+// Demo: a single pipeline where OrderBy forces single-driver execution.
 int main(int argc, char** argv) {
   folly::init::Init init{&argc, &argv, false};
 
