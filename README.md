@@ -11,7 +11,7 @@ ForkVelox 是 Meta Velox 执行引擎的一个重新实现版本，使用现代 
 - 支持内存追踪与统计。
 
 ### 2. 类型系统 (Type System)
-- 支持 SQL 标准类型：`INTEGER`, `BIGINT`, `VARCHAR`, `ROW`。
+- 支持 SQL 标准类型：`INTEGER`, `VARCHAR`。
 - **StringView 优化**：实现了 Velox 特有的字符串视图，支持短字符串内联 (Small String Optimization) 和非所有权引用，极大减少内存分配。
 - **Variant**：支持异构类型的动态容器。
 

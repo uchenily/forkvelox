@@ -1,4 +1,3 @@
-# Define the library
 add_library(velox_common
     velox/common/memory/Memory.cpp
     velox/common/file/FileSystems.cpp

@@ -1,19 +1,3 @@
-/*
- * Copyright (c) Facebook, Inc. and its affiliates.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 #pragma once
 
 #include <fcntl.h>
@@ -34,34 +18,14 @@
 #include "folly/container/F14Map.h"
 
 #include "velox/common/base/Exceptions.h"
-#include "velox/common/file/FileIoTracer.h"
 #include "velox/common/file/Region.h"
-#include "velox/common/io/IoStatistics.h"
 
 namespace facebook::velox {
 
-namespace filesystems::File {
-class IoStats {
- public:
-  IoStats() = default;
-  // Stub
-};
-}
-
 struct FileIoContext {
-  filesystems::File::IoStats* ioStats{nullptr};
   folly::F14FastMap<std::string, std::string> fileOpts;
-  std::shared_ptr<FileIoTracer> ioTracer;
 
   FileIoContext() = default;
-
-  explicit FileIoContext(
-      filesystems::File::IoStats* stats,
-      folly::F14FastMap<std::string, std::string> fileOpts = {},
-      std::shared_ptr<FileIoTracer> tracer = nullptr)
-      : ioStats(stats),
-        fileOpts(std::move(fileOpts)),
-        ioTracer(std::move(tracer)) {}
 };
 
 class ReadFile {
@@ -72,27 +36,27 @@ class ReadFile {
       uint64_t offset,
       uint64_t length,
       void* buf,
-      const FileIoContext& context = {}) const = 0;
+      const FileIoContext& context = FileIoContext()) const = 0;
 
   virtual std::string pread(
       uint64_t offset,
       uint64_t length,
-      const FileIoContext& context = {}) const;
+      const FileIoContext& context = FileIoContext()) const;
 
   virtual uint64_t preadv(
       uint64_t /*offset*/,
       const std::vector<folly::Range<char*>>& /*buffers*/,
-      const FileIoContext& context = {}) const;
+      const FileIoContext& context = FileIoContext()) const;
 
   virtual uint64_t preadv(
       folly::Range<const common::Region*> regions,
       folly::Range<folly::IOBuf*> iobufs,
-      const FileIoContext& context = {}) const;
+      const FileIoContext& context = FileIoContext()) const;
 
   virtual folly::SemiFuture<uint64_t> preadvAsync(
       uint64_t offset,
       const std::vector<folly::Range<char*>>& buffers,
-      const FileIoContext& context = {}) const {
+      const FileIoContext& context = FileIoContext()) const {
       // Synchronous fallback
       return folly::makeSemiFuture<uint64_t>(preadv(offset, buffers, context));
   }
@@ -176,12 +140,12 @@ class InMemoryReadFile : public ReadFile {
       uint64_t offset,
       uint64_t length,
       void* buf,
-      const FileIoContext& context = {}) const override;
+      const FileIoContext& context = FileIoContext()) const override;
 
   std::string pread(
       uint64_t offset,
       uint64_t length,
-      const FileIoContext& context = {}) const override;
+      const FileIoContext& context = FileIoContext()) const override;
 
   uint64_t size() const final {
     return file_.size();
@@ -241,19 +205,19 @@ class LocalReadFile final : public ReadFile {
       uint64_t offset,
       uint64_t length,
       void* buf,
-      const FileIoContext& context = {}) const final;
+      const FileIoContext& context = FileIoContext()) const final;
 
   uint64_t size() const final;
 
   uint64_t preadv(
       uint64_t offset,
       const std::vector<folly::Range<char*>>& buffers,
-      const FileIoContext& context = {}) const final;
+      const FileIoContext& context = FileIoContext()) const final;
 
   folly::SemiFuture<uint64_t> preadvAsync(
       uint64_t offset,
       const std::vector<folly::Range<char*>>& buffers,
-      const FileIoContext& context = {}) const override;
+      const FileIoContext& context = FileIoContext()) const override;
 
   bool hasPreadvAsync() const override {
     return executor_ != nullptr;
