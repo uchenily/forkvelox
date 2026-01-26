@@ -314,6 +314,13 @@ std::vector<RowVectorPtr> Task::run() {
     }
   }
 
+  std::cout << "[Task] Pipelines: " << driverFactories.size() << std::endl;
+  for (size_t i = 0; i < driverFactories.size(); ++i) {
+    std::cout << "[Task] Pipeline " << i << " drivers=" << driverFactories[i]->numDrivers
+              << (driverFactories[i]->outputPipeline ? " output" : "")
+              << (driverFactories[i]->inputDriver ? " input" : "") << std::endl;
+  }
+
   std::unordered_map<core::PlanNodeId, size_t> buildPipelines;
   for (size_t i = 0; i < driverFactories.size(); ++i) {
     const auto& factory = driverFactories[i];
