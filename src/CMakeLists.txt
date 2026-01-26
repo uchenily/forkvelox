@@ -38,3 +38,6 @@ target_link_libraries(PipelineSplitDemo velox_common Threads::Threads)
 
 add_executable(TwoHashJoinDemo demo/TwoHashJoinDemo.cpp)
 target_link_libraries(TwoHashJoinDemo velox_common Threads::Threads)
+
+add_executable(OrderByPartialFinalDemo demo/OrderByPartialFinalDemo.cpp)
+target_link_libraries(OrderByPartialFinalDemo velox_common Threads::Threads)
