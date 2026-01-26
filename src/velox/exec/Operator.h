@@ -549,24 +549,35 @@ public:
     }
     bool isFinished() override { return finished_; }
 private:
+    struct MatchRow {
+        vector_size_t probeRow;
+        HashJoinBridge::BuildRow buildRow;
+    };
+
     RowVectorPtr buildOutput(const RowVectorPtr& probeBatch) {
         auto probeKeyCol =
             std::dynamic_pointer_cast<SimpleVector<int64_t>>(probeBatch->childAt(0));
         if (!probeKeyCol) {
             VELOX_FAIL("HashJoin probe side expects int64 key in column 0");
         }
-        std::vector<HashJoinBridge::BuildRow> matches;
+        std::vector<MatchRow> matches;
         const auto& index = bridge_->buildIndex();
         for (vector_size_t row = 0; row < probeBatch->size(); ++row) {
             auto range = index.equal_range(probeKeyCol->valueAt(row));
             for (auto it = range.first; it != range.second; ++it) {
-                matches.push_back(it->second);
+                matches.push_back(MatchRow{row, it->second});
             }
         }
         if (matches.empty()) {
             return nullptr;
         }
         auto pool = ctx_->pool();
+        auto keyCol = std::make_shared<FlatVector<int64_t>>(
+            pool,
+            BIGINT(),
+            nullptr,
+            matches.size(),
+            AlignedBuffer::allocate(matches.size() * sizeof(int64_t), pool));
         auto outCol = std::make_shared<FlatVector<StringView>>(
             pool,
             VARCHAR(),
@@ -575,18 +586,19 @@ private:
             AlignedBuffer::allocate(matches.size() * sizeof(StringView), pool));
         const auto& buildBatches = bridge_->buildBatches();
         for (size_t i = 0; i < matches.size(); ++i) {
-            const auto& buildRow = matches[i];
-            auto buildBatch = buildBatches[buildRow.first];
+            const auto& match = matches[i];
+            keyCol->mutableRawValues()[i] = probeKeyCol->valueAt(match.probeRow);
+            auto buildBatch = buildBatches[match.buildRow.first];
             auto nameCol =
                 std::dynamic_pointer_cast<SimpleVector<StringView>>(buildBatch->childAt(1));
-            outCol->copy(nameCol.get(), buildRow.second, i);
+            outCol->copy(nameCol.get(), match.buildRow.second, i);
         }
         return std::make_shared<RowVector>(
             pool,
-            ROW({"r_name"}, {VARCHAR()}),
+            ROW({"join_key", "r_name"}, {BIGINT(), VARCHAR()}),
             nullptr,
             matches.size(),
-            std::vector<VectorPtr>{outCol});
+            std::vector<VectorPtr>{keyCol, outCol});
     }
 
     RowVectorPtr pendingOutput_;

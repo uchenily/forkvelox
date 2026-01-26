@@ -5,6 +5,7 @@
 #include "velox/core/ExecCtx.h"
 #include "velox/exec/Split.h"
 #include "velox/tpch/gen/TpchGen.h"
+#include <unordered_map>
 
 namespace facebook::velox::exec::test {
 
@@ -15,21 +16,11 @@ public:
     std::shared_ptr<RowVector> copyResults(memory::MemoryPool* pool) {
         auto queryCtx = core::QueryCtx::create();
         core::ExecCtx execCtx(pool, queryCtx.get());
-        auto joinNode = findJoin(planNode_);
-        std::shared_ptr<HashJoinBridge> bridge;
-        if (joinNode) {
-            bridge = std::make_shared<HashJoinBridge>();
-            auto join = std::dynamic_pointer_cast<const core::HashJoinNode>(joinNode);
-            std::vector<std::shared_ptr<Operator>> buildOps;
-            buildPipeline(join->sources()[1], buildOps, &execCtx, bridge);
-            std::reverse(buildOps.begin(), buildOps.end());
-            buildOps.push_back(std::make_shared<HashBuildOperator>(joinNode, bridge));
-            ::facebook::velox::exec::Driver buildDriver(buildOps);
-            buildDriver.run();
-        }
+        std::unordered_map<core::PlanNodeId, std::shared_ptr<HashJoinBridge>> bridges;
+        buildAllJoins(planNode_, &execCtx, bridges);
 
         std::vector<std::shared_ptr<Operator>> ops;
-        buildPipeline(planNode_, ops, &execCtx, bridge);
+        buildPipeline(planNode_, ops, &execCtx, bridges);
         std::reverse(ops.begin(), ops.end());
 
         ::facebook::velox::exec::Driver driver(ops);
@@ -103,7 +94,7 @@ private:
         core::PlanNodePtr node,
         std::vector<std::shared_ptr<Operator>>& ops,
         core::ExecCtx* ctx,
-        const std::shared_ptr<HashJoinBridge>& bridge) {
+        const std::unordered_map<core::PlanNodeId, std::shared_ptr<HashJoinBridge>>& bridges) {
         if (auto values = std::dynamic_pointer_cast<const core::ValuesNode>(node)) {
             ops.push_back(std::make_shared<ValuesOperator>(node));
         } else if (std::dynamic_pointer_cast<const core::FileScanNode>(node)) {
@@ -119,7 +110,11 @@ private:
         } else if (auto topN = std::dynamic_pointer_cast<const core::TopNNode>(node)) {
             ops.push_back(std::make_shared<TopNOperator>(node));
         } else if (auto join = std::dynamic_pointer_cast<const core::HashJoinNode>(node)) {
-            ops.push_back(std::make_shared<HashProbeOperator>(node, ctx, bridge));
+            auto it = bridges.find(join->id());
+            if (it == bridges.end()) {
+                VELOX_FAIL("Missing HashJoin bridge for plan node");
+            }
+            ops.push_back(std::make_shared<HashProbeOperator>(node, ctx, it->second));
         } else if (auto scan = std::dynamic_pointer_cast<const core::TableScanNode>(node)) {
             RowVectorPtr data;
             if (scan->table() == tpch::Table::TBL_NATION) data = createTpchNation(ctx->pool());
@@ -148,23 +143,35 @@ private:
         
         auto sources = node->sources();
         if (!sources.empty()) {
-            buildPipeline(sources[0], ops, ctx, bridge);
+            buildPipeline(sources[0], ops, ctx, bridges);
         }
     }
 
-    core::PlanNodePtr findJoin(const core::PlanNodePtr& node) {
+    void buildAllJoins(
+        const core::PlanNodePtr& node,
+        core::ExecCtx* ctx,
+        std::unordered_map<core::PlanNodeId, std::shared_ptr<HashJoinBridge>>& bridges) {
         if (!node) {
-            return nullptr;
-        }
-        if (std::dynamic_pointer_cast<const core::HashJoinNode>(node)) {
-            return node;
+            return;
         }
         for (const auto& source : node->sources()) {
-            if (auto found = findJoin(source)) {
-                return found;
-            }
+            buildAllJoins(source, ctx, bridges);
         }
-        return nullptr;
+        auto join = std::dynamic_pointer_cast<const core::HashJoinNode>(node);
+        if (!join) {
+            return;
+        }
+        if (bridges.find(join->id()) != bridges.end()) {
+            return;
+        }
+        auto bridge = std::make_shared<HashJoinBridge>();
+        bridges.emplace(join->id(), bridge);
+        std::vector<std::shared_ptr<Operator>> buildOps;
+        buildPipeline(join->sources()[1], buildOps, ctx, bridges);
+        std::reverse(buildOps.begin(), buildOps.end());
+        buildOps.push_back(std::make_shared<HashBuildOperator>(node, bridge));
+        ::facebook::velox::exec::Driver buildDriver(buildOps);
+        buildDriver.run();
     }
 
     core::PlanNodePtr planNode_;

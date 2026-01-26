@@ -106,6 +106,8 @@ HashJoin 会拆成两条 pipeline（对齐 Velox 的 `HashBuild`/`HashProbe` 模
 - **Build pipeline**：build side -> `HashBuildOperator`，只构建 hash 表，不输出数据。
 - **Probe pipeline**：probe side -> `HashProbeOperator`，依赖 build 完成后的 hash 表进行探测输出。
 
+当计划中存在多个 HashJoin 时，每个 Join 会有独立的 build/probe pipeline，先完成各自 build，再运行 probe pipeline。
+
 ## 9. Demo 覆盖
 
 - **TaskParallelDemo**：验证单 pipeline 多 driver 并行（`Values -> Filter`）。

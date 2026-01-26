@@ -34,3 +34,6 @@ target_link_libraries(TaskParallelDemo velox_common Threads::Threads)
 
 add_executable(PipelineSplitDemo demo/PipelineSplitDemo.cpp)
 target_link_libraries(PipelineSplitDemo velox_common Threads::Threads)
+
+add_executable(TwoHashJoinDemo demo/TwoHashJoinDemo.cpp)
+target_link_libraries(TwoHashJoinDemo velox_common Threads::Threads)

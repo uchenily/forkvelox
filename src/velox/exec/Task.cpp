@@ -264,12 +264,14 @@ std::vector<RowVectorPtr> Task::run() {
     return pipelines;
   };
 
+  using HashJoinBridgeMap =
+      std::unordered_map<core::PlanNodeId, std::shared_ptr<HashJoinBridge>>;
+
   auto makeOperatorForNode =
       [&](const core::PlanNodePtr& node,
           core::ExecCtx* ctx,
           const SourceStateMap& states,
-          const std::shared_ptr<HashJoinBridge>& bridge)
-      -> std::shared_ptr<Operator> {
+          const HashJoinBridgeMap& bridges) -> std::shared_ptr<Operator> {
     if (auto values = std::dynamic_pointer_cast<const core::ValuesNode>(node)) {
       auto it = states.find(values->id());
       return std::static_pointer_cast<Operator>(
@@ -304,8 +306,12 @@ std::vector<RowVectorPtr> Task::run() {
           std::make_shared<TopNOperator>(node));
     }
     if (std::dynamic_pointer_cast<const core::HashJoinNode>(node)) {
+      auto it = bridges.find(node->id());
+      if (it == bridges.end()) {
+        VELOX_FAIL("Missing HashJoin bridge for plan node");
+      }
       return std::static_pointer_cast<Operator>(
-          std::make_shared<HashProbeOperator>(node, ctx, bridge));
+          std::make_shared<HashProbeOperator>(node, ctx, it->second));
     }
     return std::static_pointer_cast<Operator>(
         std::make_shared<PassThroughOperator>(node));
@@ -313,7 +319,7 @@ std::vector<RowVectorPtr> Task::run() {
 
   auto runPipelines =
       [&](const core::PlanNodePtr& plan,
-          const std::shared_ptr<HashJoinBridge>& bridge,
+          const HashJoinBridgeMap& bridges,
           const std::function<std::shared_ptr<Operator>(core::ExecCtx*)>& tailOpFactory) {
     SourceStateMap sourceStates;
     collectSourceStates(plan, queryCtx_->pool(), sourceStates);
@@ -368,7 +374,7 @@ std::vector<RowVectorPtr> Task::run() {
 
           for (const auto& node : pipeline.nodes) {
             ops.push_back(
-                makeOperatorForNode(node, &execCtx, sourceStates, bridge));
+                makeOperatorForNode(node, &execCtx, sourceStates, bridges));
           }
 
           if (tailOpFactory && pipelineId == pipelines.size() - 1) {
@@ -399,36 +405,37 @@ std::vector<RowVectorPtr> Task::run() {
     return results;
   };
 
-  std::function<core::PlanNodePtr(const core::PlanNodePtr&)> findJoin =
-      [&](const core::PlanNodePtr& node) -> core::PlanNodePtr {
+  HashJoinBridgeMap bridges;
+  std::function<void(const core::PlanNodePtr&)> buildJoins =
+      [&](const core::PlanNodePtr& node) {
         if (!node) {
-          return nullptr;
-        }
-        if (std::dynamic_pointer_cast<const core::HashJoinNode>(node)) {
-          return node;
+          return;
         }
         for (const auto& source : node->sources()) {
-          if (auto found = findJoin(source)) {
-            return found;
-          }
+          buildJoins(source);
         }
-        return nullptr;
+        auto join =
+            std::dynamic_pointer_cast<const core::HashJoinNode>(node);
+        if (!join) {
+          return;
+        }
+        if (bridges.find(join->id()) != bridges.end()) {
+          return;
+        }
+        auto bridge = std::make_shared<HashJoinBridge>();
+        bridges.emplace(join->id(), bridge);
+        auto buildNode = join->sources()[1];
+        runPipelines(
+            buildNode,
+            bridges,
+            [&](core::ExecCtx* execCtx) {
+              return std::make_shared<HashBuildOperator>(node, bridge);
+            });
       };
 
-  std::shared_ptr<HashJoinBridge> bridge;
-  if (auto joinNode = findJoin(plan_)) {
-    auto join = std::dynamic_pointer_cast<const core::HashJoinNode>(joinNode);
-    bridge = std::make_shared<HashJoinBridge>();
-    auto buildNode = join->sources()[1];
-    runPipelines(
-        buildNode,
-        bridge,
-        [&](core::ExecCtx* execCtx) {
-          return std::make_shared<HashBuildOperator>(joinNode, bridge);
-        });
-  }
+  buildJoins(plan_);
 
-  return runPipelines(plan_, bridge, {});
+  return runPipelines(plan_, bridges, {});
 }
 
 } // namespace facebook::velox::exec
