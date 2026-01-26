@@ -94,10 +94,11 @@ int main(int argc, char** argv) {
       {makeInt64Vector(pool.get(), {1, 2, 3, 4}),
        makeStringVector(pool.get(), {"C1", "C2", "C3", "C4"})});
 
-  auto buildPlan1 = PlanBuilder().values({buildBatch1}).planNode();
-  auto buildPlan2 = PlanBuilder().values({buildBatch2}).planNode();
+  auto idGen = std::make_shared<core::PlanNodeIdGenerator>();
+  auto buildPlan1 = PlanBuilder(idGen).values({buildBatch1}).planNode();
+  auto buildPlan2 = PlanBuilder(idGen).values({buildBatch2}).planNode();
 
-  auto plan = PlanBuilder()
+  auto plan = PlanBuilder(idGen)
                   .values({probeBatch})
                   .hashJoin({}, {}, buildPlan1, "", {})
                   .hashJoin({}, {}, buildPlan2, "", {})
