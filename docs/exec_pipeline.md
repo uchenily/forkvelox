@@ -1,125 +1,107 @@
 # 逻辑计划到执行计划：Pipeline 拆分与并行驱动
 
-本文档总结逻辑计划在执行时如何被拆分为多个 pipeline、pipeline 内如何并行执行，以及当前 MiniVelox 的实现方式（尽量对齐 Velox 的思想）。
+本文档总结当前 MiniVelox 的 pipeline 拆分与执行方式，参考 Velox 的 LocalPlanner 模型。
 
 ## 1. 核心概念
 
-- **Plan Fragment（计划片段）**：可在一个 Task 中执行的 PlanNode 子树。
+- **Plan Fragment**：可在一个 Task 中执行的 PlanNode 子树。
 - **Pipeline**：一条线性算子链，通常在 LocalMerge、非第 0 个 source、或 Join build 边界处分割。
 - **Driver**：执行一个 pipeline 的线程实例，同一 pipeline 可由多个 driver 并行执行。
-- **Local Exchange**：进程内队列，用于把上游 pipeline 的输出传给下游 pipeline（通过 `LocalPartition`/`LocalMerge` 连接）。
+- **Local Exchange**：进程内队列，用于把上游 pipeline 的输出传给下游 pipeline（通过 LocalPartition/LocalMerge 连接）。
 
-## 2. 逻辑计划与执行计划的映射
+## 2. PlanNode 到 Pipeline
 
-逻辑计划以 `core::PlanNode` 树表示。
-执行计划由多个 pipeline 组成，每个 pipeline 由一个或多个 driver 执行。
-
-### 示例计划
+### 示例：OrderBy partial/final
 
 ```
 Values -> Filter -> OrderBy(partial) -> LocalPartition -> LocalMerge -> OrderBy(final)
 ```
 
-- partial `OrderBy` 允许多 driver 并行。
-- `LocalPartition/LocalMerge` 形成 Local Exchange 边界。
-- final `OrderBy` 强制单 driver。
-
-此计划会拆成两个 pipeline：
+拆分结果：
 
 ```
 Pipeline 0: Values -> Filter -> OrderBy(partial) -> LocalExchangeSink
 Pipeline 1: LocalExchangeSource -> OrderBy(final)
 ```
 
+### 示例：HashJoin build/probe
+
+```
+ProbePlan -> HashJoin
+BuildPlan
+```
+
+拆分结果：
+
+```
+Pipeline 0 (build): BuildPlan -> HashBuild
+Pipeline 1 (probe): ProbePlan -> HashProbe
+```
+
 ## 3. Pipeline 拆分规则
 
-当前实现参考 Velox `LocalPlanner` 的思路：
+当前实现遵循 LocalPlanner 的核心思路：
 
-- **按输入源拆分**：同一 PlanNode 的 **非第 0 个 source** 会启动新 pipeline。
-- **LocalMerge 边界**：遇到 `LocalMerge` 会新建 pipeline，和上游 `LocalPartition` 形成 Local Exchange。
-- **Join build pipeline**：`HashJoin` 的 build side 会生成独立 pipeline，尾部追加 `HashBuildOperator`。
+- **按输入源拆分**：同一 PlanNode 的非第 0 个 source 会启动新 pipeline。
+- **LocalMerge 边界**：LocalMerge 强制新 pipeline，和上游 LocalPartition 形成 Local Exchange。
+- **Join build pipeline**：HashJoin 的 build side 会生成独立 pipeline，尾部追加 HashBuildOperator。
 
-## 4. Pipeline 执行模型
+## 4. Pipeline 依赖与调度
 
-### 4.1 每条 Pipeline 的 Driver 数
+- **Join 依赖**：probe pipeline 依赖 build pipeline 完成。
+- **LocalExchange 依赖**：consumer pipeline 依赖 producer pipeline 完成。
+- **调度方式**：按依赖拓扑顺序启动 pipelines。
 
-单 pipeline 内仍会根据算子特性限制并发：
+## 5. Driver 并行度
 
-- `OrderBy`、`TopN`、`Aggregation`、`TableWrite` 强制单 driver。
-- 其他算子默认按 `maxDrivers` 并行运行。
+- 默认按 `maxDrivers` 并行运行。
+- 下列算子会强制单 driver：
+  - `OrderBy`（final）
+  - `TopN`
+  - `Aggregation`（final/single）
+  - `TableWrite`
 
-### 4.2 Pipeline 依赖
+## 6. Aggregation 的步骤
 
-Join 的 probe pipeline 依赖其 build pipeline 完成，执行时按依赖顺序调度。
-LocalExchange 的 consumer pipeline 依赖 producer pipeline 完成。
+Aggregation 支持以下步骤：
 
-## 5. Task 执行流程
+- `Single`：单阶段聚合，强制单 driver。
+- `Partial`：输出中间结果（sum/count）。
+- `Intermediate`：继续聚合中间结果。
+- `Final`：从中间结果输出最终结果。
 
-`Task::run()` 的核心流程（参考 `LocalPlanner`）：
+Avg 的中间列命名规则：
 
-1. **遍历计划树**，按非第 0 个 source 和 `LocalMerge` 拆分 pipeline。
-2. **为 HashJoin build side 追加 HashBuildOperator**。
-3. **创建 LocalExchange 队列并建立 producer/consumer 依赖**。
-4. **根据依赖顺序执行 pipeline**。
-5. **只收集输出 pipeline 的结果**。
+- `avg(x) AS avg_col` 在 partial/intermediate 输出为 `avg_col_sum` 与 `avg_col_count`。
 
-伪流程如下：
+## 7. Task 执行流程
 
-```
-plan -> [pipelines]
-for each pipeline in dependency order:
-  启动 N 个 driver
-  driver 执行自己的算子链
-收集输出 pipeline 的结果
-```
+`Task::run()` 的核心流程：
 
-## 6. Pipeline 内并行
+1. 收集 HashJoin bridges 与 split 信息。
+2. LocalPlanner 生成 DriverFactory 列表。
+3. 创建 LocalExchange 队列并建立依赖。
+4. 按依赖顺序执行 pipelines。
+5. 收集 output pipeline 的结果。
 
-同一 pipeline 可由多个 driver 并行执行：
+## 8. Splits 与多文件扫描
 
-- 每个 driver 拥有自己的算子链实例。
-- 数据源通过共享状态（如 `ValuesSourceState`）分配数据批次。
+`FileScanNode` 支持通过 `addSplit/noMoreSplits` 注入多个文件分片：
 
-### 源共享状态
-
-以 `ValuesSourceState` 为例，通过原子下标分配批次：
-
-- Driver 0 取 batch 0
-- Driver 1 取 batch 1
-- ...
-
-## 7. 阻塞算子与全局正确性
-
-阻塞算子会强制所在 pipeline 使用单 driver，确保全局结果正确：
-
-- `OrderBy`：全局排序
-- `TopN`：全局 Top-K
-- `Aggregation`：全局或分组聚合
-- `TableWrite`：单一写入
-
-## 8. HashJoin 的 Pipeline 处理
-
-HashJoin 会拆成两条 pipeline（对齐 Velox 的 `HashBuild`/`HashProbe` 模型）：
-
-- **Build pipeline**：build side -> `HashBuildOperator`，只构建 hash 表，不输出数据。
-- **Probe pipeline**：probe side -> `HashProbeOperator`，依赖 build 完成后的 hash 表进行探测输出。
-
-当计划中存在多个 HashJoin 时，每个 Join 会有独立的 build/probe pipeline，先完成各自 build，再运行 probe pipeline。
+- 未提供 split 时使用 PlanNode 的 `path`。
+- 提供 split 时依次读取多个文件并合并批次。
 
 ## 9. Demo 覆盖
 
-- **TaskParallelDemo**：验证单 pipeline 多 driver 并行（`Values -> Filter`）。
-- **PipelineSplitDemo**：验证 LocalExchange 拆分 pipeline（partial/final `OrderBy`）。
-- **OrderByPartialFinalDemo**：验证 partial/final `OrderBy` 拆分与 driver 数量。
-- **TwoHashJoinDemo**：验证同一计划包含两个 HashJoin 的 build/probe 流程。
-- **MultiSplitScanDemo**：验证单 scan 结点通过 addSplit/noMoreSplits 读取多个文件分片。
-- **AggregationStepDemo**：验证聚合的 single/partial/intermediate/final 各阶段行为。
+- **TaskParallelDemo**：单 pipeline 多 driver 并行（`Values -> Filter`）。
+- **PipelineSplitDemo**：LocalExchange 拆分 pipeline（partial/final `OrderBy`）。
+- **OrderByPartialFinalDemo**：partial/final `OrderBy` 拆分与 driver 数量。
+- **TwoHashJoinDemo**：多 HashJoin build/probe 流程。
+- **AggregationStepDemo**：single/partial/intermediate/final 聚合。
+- **MultiSplitScanDemo**：单 scan 结点多 split 读取。
 
 ## 10. 可扩展方向
 
-若进一步逼近 Velox，可在后续补充：
-
-- 多分支计划（如 Join 多输入）。
-- 聚合的 partial/final pipeline 拆分。
+- 多分支计划与更多 LocalExchange 类型。
 - Partitioned output pipeline。
-- 按算子限制动态确定 driver 数量。
+- 更完整的算子级并行度约束。
