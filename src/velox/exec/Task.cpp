@@ -332,10 +332,61 @@ std::vector<RowVectorPtr> Task::run() {
   }
 
   std::cout << "[Task] Pipelines: " << driverFactories.size() << std::endl;
+  auto opNameForNode = [](const core::PlanNodePtr& node, bool isBuild) {
+    if (std::dynamic_pointer_cast<const core::ValuesNode>(node)) {
+      return std::string("Values");
+    }
+    if (std::dynamic_pointer_cast<const core::FileScanNode>(node)) {
+      return std::string("FileScan");
+    }
+    if (std::dynamic_pointer_cast<const core::TableWriteNode>(node)) {
+      return std::string("TableWrite");
+    }
+    if (std::dynamic_pointer_cast<const core::FilterNode>(node)) {
+      return std::string("Filter");
+    }
+    if (std::dynamic_pointer_cast<const core::AggregationNode>(node)) {
+      return std::string("Aggregation");
+    }
+    if (std::dynamic_pointer_cast<const core::OrderByNode>(node)) {
+      return std::string("OrderBy");
+    }
+    if (std::dynamic_pointer_cast<const core::TopNNode>(node)) {
+      return std::string("TopN");
+    }
+    if (std::dynamic_pointer_cast<const core::HashJoinNode>(node)) {
+      return isBuild ? std::string("HashBuild") : std::string("HashProbe");
+    }
+    if (std::dynamic_pointer_cast<const core::LocalPartitionNode>(node)) {
+      return std::string("LocalExchangeSink");
+    }
+    if (std::dynamic_pointer_cast<const core::LocalMergeNode>(node)) {
+      return std::string("LocalExchangeSource");
+    }
+    return node ? node->toString() : std::string("Unknown");
+  };
+
   for (size_t i = 0; i < driverFactories.size(); ++i) {
     std::cout << "[Task] Pipeline " << i << " drivers=" << driverFactories[i]->numDrivers
               << (driverFactories[i]->outputPipeline ? " output" : "")
-              << (driverFactories[i]->inputDriver ? " input" : "") << std::endl;
+              << (driverFactories[i]->inputDriver ? " input" : "")
+              << " operators: ";
+    bool first = true;
+    for (const auto& node : driverFactories[i]->planNodes) {
+      if (!first) {
+        std::cout << " -> ";
+      }
+      std::cout << opNameForNode(node, false);
+      first = false;
+    }
+    if (driverFactories[i]->operatorSupplier &&
+        driverFactories[i]->consumerNode) {
+      if (!first) {
+        std::cout << " -> ";
+      }
+      std::cout << opNameForNode(driverFactories[i]->consumerNode, true);
+    }
+    std::cout << std::endl;
   }
 
   std::unordered_map<std::string, size_t> exchangeProducers;
