@@ -240,6 +240,7 @@ class OrderByOperator : public Operator {
 public:
     OrderByOperator(core::PlanNodePtr node) : Operator(node) {
         auto orderByNode = std::dynamic_pointer_cast<const core::OrderByNode>(node);
+        isPartial_ = orderByNode->isPartial();
         for(const auto& key : orderByNode->keys()) {
             std::stringstream ss(key);
             std::string name, dir; ss >> name; if (ss >> dir) desc_.push_back(dir == "DESC"); else desc_.push_back(false);
@@ -289,6 +290,7 @@ private:
     std::vector<RowVectorPtr> batches_;
     std::vector<std::string> columnNames_;
     std::vector<bool> desc_;
+    bool isPartial_{false};
     bool finished_ = false, produced_ = false;
 };
 

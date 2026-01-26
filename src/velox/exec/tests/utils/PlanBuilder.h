@@ -25,7 +25,8 @@ public:
     }
 
     PlanBuilder& orderBy(const std::vector<std::string>& keys, bool isPartial) {
-        root_ = std::make_shared<core::OrderByNode>(generator_->next(), root_, keys);
+        root_ = std::make_shared<core::OrderByNode>(
+            generator_->next(), root_, keys, isPartial);
         return *this;
     }
 
