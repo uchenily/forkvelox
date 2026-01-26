@@ -19,6 +19,7 @@ public:
     }
 
     memory::MemoryPool* pool() { return pool_.get(); }
+    folly::Executor* executor() const { return executor_; }
     
 private:
     folly::Executor* executor_;

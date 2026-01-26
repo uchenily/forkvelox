@@ -3,8 +3,8 @@
 #include <algorithm>
 #include <atomic>
 #include <functional>
+#include <latch>
 #include <mutex>
-#include <thread>
 #include <unordered_map>
 #include <utility>
 
@@ -16,6 +16,7 @@
 #include "velox/exec/Operator.h"
 #include "velox/exec/Split.h"
 #include "velox/vector/FlatVector.h"
+#include "folly/executors/CPUThreadPoolExecutor.h"
 
 namespace facebook::velox::exec {
 namespace {
@@ -537,6 +538,14 @@ std::vector<RowVectorPtr> Task::run() {
   std::vector<RowVectorPtr> results;
   std::mutex resultsMutex;
 
+  std::shared_ptr<folly::CPUThreadPoolExecutor> ownedExecutor;
+  folly::Executor* executor = queryCtx_->executor();
+  if (!executor) {
+    const auto threads = std::max<size_t>(1, maxDrivers_);
+    ownedExecutor = std::make_shared<folly::CPUThreadPoolExecutor>(threads);
+    executor = ownedExecutor.get();
+  }
+
   std::vector<size_t> ready;
   ready.reserve(driverFactories.size());
   for (size_t i = 0; i < driverFactories.size(); ++i) {
@@ -550,9 +559,9 @@ std::vector<RowVectorPtr> Task::run() {
     ready.pop_back();
     auto& factory = driverFactories[pipelineId];
 
-    std::vector<std::thread> threads;
+    std::latch done(factory->numDrivers);
     for (size_t driverId = 0; driverId < factory->numDrivers; ++driverId) {
-      threads.emplace_back([&, pipelineId]() {
+      executor->add([&, pipelineId]() {
         core::ExecCtx execCtx(queryCtx_->pool(), queryCtx_.get());
         auto driver = driverFactories[pipelineId]->createDriver(
             &execCtx,
@@ -565,12 +574,11 @@ std::vector<RowVectorPtr> Task::run() {
           std::lock_guard<std::mutex> lock(resultsMutex);
           results.insert(results.end(), batches.begin(), batches.end());
         }
+        done.count_down();
       });
     }
 
-    for (auto& thread : threads) {
-      thread.join();
-    }
+    done.wait();
 
     for (auto dependent : dependents[pipelineId]) {
       if (--indegree[dependent] == 0) {
