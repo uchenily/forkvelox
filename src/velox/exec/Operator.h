@@ -5,6 +5,7 @@
 #include "velox/type/Variant.h"
 #include "velox/core/PlanNode.h"
 #include "velox/common/base/Exceptions.h"
+#include "velox/functions/aggregates/AggregateFunction.h"
 #include "velox/expression/Expr.h"
 #include "velox/dwio/common/RowVectorFile.h"
 #include "velox/exec/LocalExchange.h"
@@ -400,7 +401,12 @@ private:
 
 class AggregationOperator : public Operator {
 public:
-    struct AggregateInfo { std::string func, arg, alias; int64_t sum = 0, count = 0; };
+    struct AggregateInfo {
+        std::string func;
+        std::string arg;
+        std::string alias;
+        std::shared_ptr<aggregate::AggregateFunction> function;
+    };
     struct GroupKey {
         std::vector<Variant> values;
         bool operator==(const GroupKey& other) const {
@@ -460,6 +466,8 @@ public:
             if (open != std::string::npos && close != std::string::npos) {
                 info.func = agg.substr(0, open); info.arg = agg.substr(open + 1, close - open - 1);
                 if (asPos != std::string::npos) info.alias = agg.substr(asPos + 4);
+                info.function = aggregate::getAggregateFunction(info.func);
+                VELOX_CHECK(info.function, "Unknown aggregate function: {}", info.func);
                 aggs_.push_back(info);
             }
         }
@@ -533,21 +541,34 @@ public:
                     group.aggResults.resize(aggs_.size());
                 }
                 for(size_t j=0; j<aggs_.size(); ++j) {
-                    auto& info = aggs_[j]; auto& res = group.aggResults[j];
-                    if (info.func == "avg") {
-                        auto sumVec = std::dynamic_pointer_cast<SimpleVector<int64_t>>(input->childAt(aggColIndices[j]));
-                        auto countVec = std::dynamic_pointer_cast<SimpleVector<int64_t>>(input->childAt(aggCountIndices[j]));
-                        if (sumVec && countVec) { res.sum += sumVec->valueAt(i); res.count += countVec->valueAt(i); }
-                    } else if (info.func == "sum") {
-                        auto simple = std::dynamic_pointer_cast<SimpleVector<int64_t>>(input->childAt(aggColIndices[j]));
-                        if (simple) { res.sum += simple->valueAt(i); }
-                    } else if (info.func == "count") {
-                        auto simple = std::dynamic_pointer_cast<SimpleVector<int64_t>>(input->childAt(aggColIndices[j]));
-                        if (simple) { res.count += simple->valueAt(i); }
-                    }
+                    auto& info = aggs_[j];
+                    auto& res = group.aggResults[j];
+                    info.function->addIntermediate(
+                        input, i, aggColIndices[j], aggCountIndices[j], res);
                 }
             }
             return;
+        }
+
+        if (!aggArgsInitialized_) {
+            aggArgIndices_.clear();
+            aggArgIndices_.reserve(aggs_.size());
+            for (const auto& info : aggs_) {
+                if (info.func == "count" && info.arg == "1") {
+                    aggArgIndices_.push_back(-1);
+                    continue;
+                }
+                bool found = false;
+                for (int k = 0; k < rowType->size(); ++k) {
+                    if (rowType->nameOf(k) == info.arg) {
+                        aggArgIndices_.push_back(k);
+                        found = true;
+                        break;
+                    }
+                }
+                VELOX_CHECK(found, "Aggregation arg '{}' not found in input.", info.arg);
+            }
+            aggArgsInitialized_ = true;
         }
 
         for (vector_size_t i = 0; i < input->size(); ++i) {
@@ -567,15 +588,9 @@ public:
                 group.aggResults.resize(aggs_.size());
             }
             for(size_t j=0; j<aggs_.size(); ++j) {
-                auto& info = aggs_[j]; auto& res = group.aggResults[j];
-                if (info.func == "count" && info.arg == "1") res.count++;
-                else {
-                    for(int k=0; k<rowType->size(); ++k) if (rowType->nameOf(k) == info.arg) {
-                        auto simple = std::dynamic_pointer_cast<SimpleVector<int64_t>>(input->childAt(k));
-                        if (simple) { res.sum += simple->valueAt(i); res.count++; }
-                        break;
-                    }
-                }
+                auto& info = aggs_[j];
+                auto& res = group.aggResults[j];
+                info.function->addRaw(input, i, aggArgIndices_[j], res);
             }
         }
     }
@@ -593,7 +608,7 @@ public:
         if (step_ == core::AggregationNode::Step::kPartial ||
             step_ == core::AggregationNode::Step::kIntermediate) {
             for(const auto& info : aggs_) {
-                if (info.func == "avg") {
+                if (info.function->usesSumAndCount()) {
                     outNames.push_back(info.alias + "_sum");
                     outTypes.push_back(BIGINT());
                     outNames.push_back(info.alias + "_count");
@@ -651,7 +666,7 @@ public:
             auto& info = aggs_[j];
             if (step_ == core::AggregationNode::Step::kPartial ||
                 step_ == core::AggregationNode::Step::kIntermediate) {
-                if (info.func == "avg") {
+                if (info.function->usesSumAndCount()) {
                     auto sumCol = std::make_shared<FlatVector<int64_t>>(pool, BIGINT(), nullptr, numGroups, AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
                     auto countCol = std::make_shared<FlatVector<int64_t>>(pool, BIGINT(), nullptr, numGroups, AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
                     int i = 0;
@@ -688,9 +703,7 @@ public:
                 else {
                     for(auto& [key, group] : groups_) {
                         auto& res = group.aggResults[j];
-                        if (info.func == "sum") col->mutableRawValues()[i++] = res.sum;
-                        else if (info.func == "count") col->mutableRawValues()[i++] = res.count;
-                        else col->mutableRawValues()[i++] = res.count == 0 ? 0 : (res.sum / res.count);
+                        col->mutableRawValues()[i++] = info.function->finalize(res);
                     }
                 }
                 outCols.push_back(col);
@@ -701,7 +714,7 @@ public:
     }
     bool isFinished() override { return produced_; }
 private:
-    struct AggRes { int64_t sum = 0, count = 0; };
+    using AggRes = aggregate::AggregateAccumulator;
     struct GroupState { std::vector<AggRes> aggResults; std::vector<Variant> keyValues; };
     static Variant readVariant(const VectorPtr& vec, vector_size_t row) {
         if (vec->isNullAt(row)) {
@@ -734,6 +747,8 @@ private:
     std::unordered_map<GroupKey, GroupState, GroupKeyHash> groups_;
     core::ExecCtx* ctx_; bool global_ = true, hasInput_ = false, finished_ = false, produced_ = false;
     bool groupKeysInitialized_ = false;
+    std::vector<int> aggArgIndices_;
+    bool aggArgsInitialized_ = false;
     core::AggregationNode::Step step_{core::AggregationNode::Step::kSingle};
 };
 
