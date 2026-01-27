@@ -1,3 +1,5 @@
+default: examples
+
 build:
     cmake --build build
 setup:

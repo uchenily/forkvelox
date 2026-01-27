@@ -172,5 +172,22 @@ int main(int argc, char** argv) {
       {"{1, 30, 2}", "{2, 70, 2}", "{3, 110, 2}"},
       false);
 
+  const std::string groupedExchangeId = "agg_group_by_exchange";
+  auto groupedPartialFinalPlan = PlanBuilder()
+                                     .values(groupedBatches)
+                                     .partialAggregation({"k"}, {"sum(v) AS sum_v", "count(1) AS cnt"})
+                                     .localPartition(groupedExchangeId)
+                                     .localMerge(groupedExchangeId)
+                                     .finalAggregation({"k"}, {"sum(v) AS sum_v", "count(1) AS cnt"})
+                                     .planNode();
+
+  std::cout << "Running group-by partial/final aggregation." << std::endl;
+  runTaskWithExpectedRows(
+      "agg_group_by_partial_final",
+      groupedPartialFinalPlan,
+      3,
+      {"{1, 30, 2}", "{2, 70, 2}", "{3, 110, 2}"},
+      false);
+
   return 0;
 }
