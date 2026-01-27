@@ -6,6 +6,7 @@
 #include <random>
 
 #include "velox/buffer/Buffer.h"
+#include "velox/common/base/Exceptions.h"
 #include "velox/common/memory/Memory.h"
 #include "velox/exec/Task.h"
 #include "velox/exec/tests/utils/PlanBuilder.h"
@@ -34,7 +35,11 @@ RowVectorPtr makeBatch(memory::MemoryPool* pool, const std::vector<int64_t>& val
       std::vector<VectorPtr>{vec});
 }
 
-void runTask(const std::string& name, const core::PlanNodePtr& plan, size_t maxDrivers) {
+void runTask(
+    const std::string& name,
+    const core::PlanNodePtr& plan,
+    size_t maxDrivers,
+    const std::string& expectedRow) {
   auto task = Task::create(
       name,
       plan,
@@ -43,14 +48,22 @@ void runTask(const std::string& name, const core::PlanNodePtr& plan, size_t maxD
   task->setMaxDrivers(maxDrivers);
   auto results = task->run();
   std::cout << name << " produced " << results.size() << " batches." << std::endl;
+  RowVectorPtr singleBatch;
   for (const auto& batch : results) {
     if (!batch) {
       continue;
+    }
+    if (batch->size() > 0) {
+      VELOX_CHECK(!singleBatch, "{} produced more than one non-empty batch.", name);
+      singleBatch = batch;
     }
     for (vector_size_t i = 0; i < batch->size(); ++i) {
       std::cout << batch->toString(i) << std::endl;
     }
   }
+  VELOX_CHECK(singleBatch, "{} produced no rows.", name);
+  VELOX_CHECK_EQ(singleBatch->size(), 1);
+  VELOX_CHECK_EQ(singleBatch->toString(0), expectedRow);
 }
 
 } // namespace
@@ -73,7 +86,7 @@ int main(int argc, char** argv) {
                         .planNode();
 
   std::cout << "Running single-step aggregation." << std::endl;
-  runTask("agg_single", singlePlan, 3);
+  runTask("agg_single", singlePlan, 3, "{21, 6, 3}");
 
   const std::string exchangeId = "agg_exchange";
   auto partialFinalPlan = PlanBuilder()
@@ -85,7 +98,7 @@ int main(int argc, char** argv) {
                               .planNode();
 
   std::cout << "Running partial/final aggregation." << std::endl;
-  runTask("agg_partial_final", partialFinalPlan, 3);
+  runTask("agg_partial_final", partialFinalPlan, 3, "{21, 6, 3}");
 
   const std::string exchangeId1 = "agg_exchange_1";
   const std::string exchangeId2 = "agg_exchange_2";
@@ -101,7 +114,7 @@ int main(int argc, char** argv) {
                               .planNode();
 
   std::cout << "Running partial/intermediate/final aggregation." << std::endl;
-  runTask("agg_intermediate", intermediatePlan, 3);
+  runTask("agg_intermediate", intermediatePlan, 3, "{21, 6, 3}");
 
   return 0;
 }

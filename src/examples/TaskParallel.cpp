@@ -6,6 +6,7 @@
 #include <random>
 
 #include "velox/buffer/Buffer.h"
+#include "velox/common/base/Exceptions.h"
 #include "velox/common/memory/Memory.h"
 #include "velox/exec/Task.h"
 #include "velox/exec/tests/utils/PlanBuilder.h"
@@ -68,14 +69,27 @@ int main(int argc, char** argv) {
   std::cout << "Parallel task produced " << results.size() << " batches."
             << std::endl;
 
+  std::vector<std::string> actualRows;
   for (const auto& batch : results) {
     if (!batch) {
       continue;
     }
     for (vector_size_t i = 0; i < batch->size(); ++i) {
-      std::cout << batch->toString(i) << std::endl;
+      auto row = batch->toString(i);
+      actualRows.push_back(row);
+      std::cout << row << std::endl;
     }
   }
+
+  std::vector<std::string> expectedRows;
+  expectedRows.reserve((batchSize * numBatches) / 2);
+  for (int64_t value = 0; value < batchSize * numBatches; value += 2) {
+    expectedRows.push_back("{" + std::to_string(value) + "}");
+  }
+  std::sort(actualRows.begin(), actualRows.end());
+  std::sort(expectedRows.begin(), expectedRows.end());
+  VELOX_CHECK_EQ(actualRows.size(), expectedRows.size());
+  VELOX_CHECK_EQ(actualRows, expectedRows);
 
   return 0;
 }

@@ -1,10 +1,12 @@
 #include <folly/init/Init.h>
 
+#include <algorithm>
 #include <cstring>
 #include <iostream>
 #include <vector>
 
 #include "velox/buffer/Buffer.h"
+#include "velox/common/base/Exceptions.h"
 #include "velox/common/memory/Memory.h"
 #include "velox/dwio/common/RowVectorFile.h"
 #include "velox/exec/Task.h"
@@ -78,14 +80,24 @@ int main(int argc, char** argv) {
   auto results = task->run();
   std::cout << "Multi-split task produced " << results.size() << " batches."
             << std::endl;
+  std::vector<std::string> actualRows;
   for (const auto& batch : results) {
     if (!batch) {
       continue;
     }
     for (vector_size_t i = 0; i < batch->size(); ++i) {
-      std::cout << batch->toString(i) << std::endl;
+      auto row = batch->toString(i);
+      actualRows.push_back(row);
+      std::cout << row << std::endl;
     }
   }
+
+  std::vector<std::string> expectedRows = {
+      "{1}", "{2}", "{3}", "{4}", "{5}", "{6}"};
+  std::sort(actualRows.begin(), actualRows.end());
+  std::sort(expectedRows.begin(), expectedRows.end());
+  VELOX_CHECK_EQ(actualRows.size(), expectedRows.size());
+  VELOX_CHECK_EQ(actualRows, expectedRows);
 
   return 0;
 }

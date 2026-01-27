@@ -5,6 +5,7 @@
 #include <random>
 
 #include "velox/buffer/Buffer.h"
+#include "velox/common/base/Exceptions.h"
 #include "velox/common/memory/Memory.h"
 #include "velox/exec/tests/utils/AssertQueryBuilder.h"
 #include "velox/exec/tests/utils/PlanBuilder.h"
@@ -53,11 +54,13 @@ int main(int argc, char** argv) {
                       .planNode();
   auto sorted = AssertQueryBuilder(readPlan).copyResults(pool.get());
 
-  if (sorted) {
-    std::cout << "Vector available after processing (scan + sort):" << std::endl;
-    for (vector_size_t i = 0; i < sorted->size(); ++i) {
-      std::cout << sorted->toString(i) << std::endl;
-    }
+  VELOX_CHECK(sorted, "ScanAndSort produced no output.");
+  VELOX_CHECK_EQ(sorted->size(), vectorSize);
+  std::cout << "Vector available after processing (scan + sort):" << std::endl;
+  for (vector_size_t i = 0; i < sorted->size(); ++i) {
+    auto row = sorted->toString(i);
+    std::cout << row << std::endl;
+    VELOX_CHECK_EQ(row, "{" + std::to_string(i) + "}");
   }
 
   return 0;
