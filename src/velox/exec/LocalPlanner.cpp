@@ -83,9 +83,6 @@ size_t maxDrivers(const DriverFactory& driverFactory, size_t maxDriversHint) {
         return 1;
       }
     }
-    if (std::dynamic_pointer_cast<const core::AggregationNode>(node)) {
-      return 1;
-    }
     if (std::dynamic_pointer_cast<const core::TableWriteNode>(node)) {
       return 1;
     }

@@ -172,9 +172,18 @@ int main(int argc, char** argv) {
       {"{1, 30, 2}", "{2, 70, 2}", "{3, 110, 2}"},
       false);
 
+  auto groupedBatch1 =
+      makeKeyValueBatch(pool.get(), {1, 2}, {10, 30});
+  auto groupedBatch2 =
+      makeKeyValueBatch(pool.get(), {1, 3}, {20, 50});
+  auto groupedBatch3 =
+      makeKeyValueBatch(pool.get(), {2, 3}, {40, 60});
+  std::vector<RowVectorPtr> groupedPartialBatches{
+      groupedBatch1, groupedBatch2, groupedBatch3};
+
   const std::string groupedExchangeId = "agg_group_by_exchange";
   auto groupedPartialFinalPlan = PlanBuilder()
-                                     .values(groupedBatches)
+                                     .values(groupedPartialBatches)
                                      .partialAggregation({"k"}, {"sum(v) AS sum_v", "count(1) AS cnt"})
                                      .localPartition(groupedExchangeId)
                                      .localMerge(groupedExchangeId)
