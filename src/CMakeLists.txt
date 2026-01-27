@@ -20,35 +20,35 @@ add_library(velox_common
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(velox_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-add_executable(VeloxIn10MinDemo demo/VeloxIn10MinDemo.cpp)
+add_executable(VeloxIn10MinDemo examples/VeloxIn10MinDemo.cpp)
 target_link_libraries(VeloxIn10MinDemo velox_common Threads::Threads)
 
-add_executable(ScanAndSortDemo demo/ScanAndSortDemo.cpp)
+add_executable(ScanAndSortDemo examples/ScanAndSortDemo.cpp)
 target_link_libraries(ScanAndSortDemo velox_common Threads::Threads)
 
-add_executable(ScanCsvDemo demo/ScanCsvDemo.cpp)
+add_executable(ScanCsvDemo examples/ScanCsvDemo.cpp)
 target_link_libraries(ScanCsvDemo velox_common Threads::Threads)
 
-add_executable(TaskParallelDemo demo/TaskParallelDemo.cpp)
+add_executable(TaskParallelDemo examples/TaskParallelDemo.cpp)
 target_link_libraries(TaskParallelDemo velox_common Threads::Threads)
 
-add_executable(PipelineSplitDemo demo/PipelineSplitDemo.cpp)
+add_executable(PipelineSplitDemo examples/PipelineSplitDemo.cpp)
 target_link_libraries(PipelineSplitDemo velox_common Threads::Threads)
 
-add_executable(TwoHashJoinDemo demo/TwoHashJoinDemo.cpp)
+add_executable(TwoHashJoinDemo examples/TwoHashJoinDemo.cpp)
 target_link_libraries(TwoHashJoinDemo velox_common Threads::Threads)
 
-add_executable(OrderByPartialFinalDemo demo/OrderByPartialFinalDemo.cpp)
+add_executable(OrderByPartialFinalDemo examples/OrderByPartialFinalDemo.cpp)
 target_link_libraries(OrderByPartialFinalDemo velox_common Threads::Threads)
 
-add_executable(MultiSplitScanDemo demo/MultiSplitScanDemo.cpp)
+add_executable(MultiSplitScanDemo examples/MultiSplitScanDemo.cpp)
 target_link_libraries(MultiSplitScanDemo velox_common Threads::Threads)
 
-add_executable(AggregationStepDemo demo/AggregationStepDemo.cpp)
+add_executable(AggregationStepDemo examples/AggregationStepDemo.cpp)
 target_link_libraries(AggregationStepDemo velox_common Threads::Threads)
 
-add_executable(VectorReaderWriterDemo demo/VectorReaderWriterDemo.cpp)
+add_executable(VectorReaderWriterDemo examples/VectorReaderWriterDemo.cpp)
 target_link_libraries(VectorReaderWriterDemo velox_common Threads::Threads)
 
-add_executable(CancellationRequeueDemo demo/CancellationRequeueDemo.cpp)
+add_executable(CancellationRequeueDemo examples/CancellationRequeueDemo.cpp)
 target_link_libraries(CancellationRequeueDemo velox_common Threads::Threads)
