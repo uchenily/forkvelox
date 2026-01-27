@@ -2,6 +2,7 @@
 #include "velox/vector/ComplexVector.h"
 #include "velox/vector/FlatVector.h"
 #include "velox/type/StringView.h"
+#include "velox/type/Variant.h"
 #include "velox/core/PlanNode.h"
 #include "velox/common/base/Exceptions.h"
 #include "velox/expression/Expr.h"
@@ -9,6 +10,7 @@
 #include "velox/exec/LocalExchange.h"
 #include <iostream>
 #include <algorithm>
+#include <cstring>
 #include <functional>
 #include <mutex>
 #include <sstream>
@@ -399,6 +401,55 @@ private:
 class AggregationOperator : public Operator {
 public:
     struct AggregateInfo { std::string func, arg, alias; int64_t sum = 0, count = 0; };
+    struct GroupKey {
+        std::vector<Variant> values;
+        bool operator==(const GroupKey& other) const {
+            if (values.size() != other.values.size()) {
+                return false;
+            }
+            for (size_t i = 0; i < values.size(); ++i) {
+                if (!variantEquals(values[i], other.values[i])) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        static bool variantEquals(const Variant& a, const Variant& b) {
+            if (a.kind() != b.kind()) return false;
+            if (a.isNull() || b.isNull()) return a.isNull() && b.isNull();
+            switch (a.kind()) {
+                case TypeKind::BIGINT:
+                case TypeKind::INTEGER:
+                    return a.value<int64_t>() == b.value<int64_t>();
+                case TypeKind::VARCHAR:
+                    return a.value<std::string>() == b.value<std::string>();
+                default:
+                    return false;
+            }
+        }
+    };
+    struct GroupKeyHash {
+        size_t operator()(const GroupKey& key) const {
+            size_t h = 0;
+            for (const auto& v : key.values) {
+                h ^= hashVariant(v) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            }
+            return h;
+        }
+        static size_t hashVariant(const Variant& v) {
+            size_t h = std::hash<int>()(static_cast<int>(v.kind()));
+            if (v.isNull()) return h;
+            switch (v.kind()) {
+                case TypeKind::BIGINT:
+                case TypeKind::INTEGER:
+                    return h ^ std::hash<int64_t>()(v.value<int64_t>());
+                case TypeKind::VARCHAR:
+                    return h ^ std::hash<std::string>()(v.value<std::string>());
+                default:
+                    return h;
+            }
+        }
+    };
     AggregationOperator(core::PlanNodePtr node, core::ExecCtx* ctx) : Operator(node), ctx_(ctx) {
         auto aggNode = std::dynamic_pointer_cast<const core::AggregationNode>(node);
         global_ = aggNode->groupingKeys().empty();
@@ -418,9 +469,26 @@ public:
         if (!input || input->size() == 0) return;
         hasInput_ = true;
         auto rowType = asRowType(input->type());
-        std::vector<int> groupColIndices;
-        for(const auto& key : groupingKeys_) {
-            for(int i=0; i<rowType->size(); ++i) if (rowType->nameOf(i) == key) { groupColIndices.push_back(i); break; }
+        if (!groupKeysInitialized_ && !groupingKeys_.empty()) {
+            groupColIndices_.clear();
+            groupingTypes_.clear();
+            groupColIndices_.reserve(groupingKeys_.size());
+            groupingTypes_.reserve(groupingKeys_.size());
+            for (const auto& key : groupingKeys_) {
+                bool found = false;
+                for (int i = 0; i < rowType->size(); ++i) {
+                    if (rowType->nameOf(i) == key) {
+                        groupColIndices_.push_back(i);
+                        groupingTypes_.push_back(rowType->childAt(i));
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    VELOX_FAIL("Grouping key '{}' not found in input row type.", key);
+                }
+            }
+            groupKeysInitialized_ = true;
         }
 
         if (step_ == core::AggregationNode::Step::kFinal ||
@@ -449,15 +517,20 @@ public:
             }
 
             for (vector_size_t i = 0; i < input->size(); ++i) {
-                std::string groupKey = "";
-                if (!global_) for (int idx : groupColIndices) groupKey += input->childAt(idx)->toString(i) + "|";
-                auto& group = groups_[groupKey];
+                GroupKey key;
+                if (!global_) {
+                    key.values.reserve(groupColIndices_.size());
+                    for (int idx : groupColIndices_) {
+                        key.values.push_back(readVariant(input->childAt(idx), i));
+                    }
+                }
+                auto [it, inserted] = groups_.try_emplace(key, GroupState{});
+                if (inserted && !global_) {
+                    it->second.keyValues = key.values;
+                }
+                auto& group = it->second;
                 if (group.aggResults.empty()) {
                     group.aggResults.resize(aggs_.size());
-                    if (!global_) {
-                        group.rowIdx = i;
-                        for (int idx : groupColIndices) group.groupVecs.push_back(input->childAt(idx));
-                    }
                 }
                 for(size_t j=0; j<aggs_.size(); ++j) {
                     auto& info = aggs_[j]; auto& res = group.aggResults[j];
@@ -478,15 +551,20 @@ public:
         }
 
         for (vector_size_t i = 0; i < input->size(); ++i) {
-            std::string groupKey = "";
-            if (!global_) for (int idx : groupColIndices) groupKey += input->childAt(idx)->toString(i) + "|";
-            auto& group = groups_[groupKey];
+            GroupKey key;
+            if (!global_) {
+                key.values.reserve(groupColIndices_.size());
+                for (int idx : groupColIndices_) {
+                    key.values.push_back(readVariant(input->childAt(idx), i));
+                }
+            }
+            auto [it, inserted] = groups_.try_emplace(key, GroupState{});
+            if (inserted && !global_) {
+                it->second.keyValues = key.values;
+            }
+            auto& group = it->second;
             if (group.aggResults.empty()) {
                 group.aggResults.resize(aggs_.size());
-                if (!global_) {
-                    group.rowIdx = i;
-                    for (int idx : groupColIndices) group.groupVecs.push_back(input->childAt(idx));
-                }
             }
             for(size_t j=0; j<aggs_.size(); ++j) {
                 auto& info = aggs_[j]; auto& res = group.aggResults[j];
@@ -508,7 +586,10 @@ public:
         auto pool = ctx_->pool();
         std::vector<std::string> outNames = groupingKeys_;
         std::vector<TypePtr> outTypes;
-        for(size_t k=0; k<groupingKeys_.size(); ++k) outTypes.push_back(VARCHAR());
+        for(size_t k=0; k<groupingKeys_.size(); ++k) {
+            if (k < groupingTypes_.size()) outTypes.push_back(groupingTypes_[k]);
+            else outTypes.push_back(VARCHAR());
+        }
         if (step_ == core::AggregationNode::Step::kPartial ||
             step_ == core::AggregationNode::Step::kIntermediate) {
             for(const auto& info : aggs_) {
@@ -528,10 +609,43 @@ public:
         size_t numGroups = groups_.size(); if (global_ && numGroups == 0) numGroups = 1;
         std::vector<VectorPtr> outCols;
         for(size_t k=0; k<groupingKeys_.size(); ++k) {
-            auto col = std::make_shared<FlatVector<StringView>>(pool, VARCHAR(), nullptr, numGroups, AlignedBuffer::allocate(numGroups * sizeof(StringView), pool));
-            int i = 0;
-            for(auto& [key, group] : groups_) col->copy(group.groupVecs[k].get(), group.rowIdx, i++);
-            outCols.push_back(col);
+            auto typeKind = outTypes[k]->kind();
+            if (typeKind == TypeKind::BIGINT) {
+                auto col = std::make_shared<FlatVector<int64_t>>(pool, outTypes[k], nullptr, numGroups, AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
+                int i = 0;
+                for (auto& [key, group] : groups_) {
+                    col->mutableRawValues()[i++] = group.keyValues[k].value<int64_t>();
+                }
+                outCols.push_back(col);
+            } else if (typeKind == TypeKind::INTEGER) {
+                auto col = std::make_shared<FlatVector<int32_t>>(pool, outTypes[k], nullptr, numGroups, AlignedBuffer::allocate(numGroups * sizeof(int32_t), pool));
+                int i = 0;
+                for (auto& [key, group] : groups_) {
+                    col->mutableRawValues()[i++] = static_cast<int32_t>(group.keyValues[k].value<int64_t>());
+                }
+                outCols.push_back(col);
+            } else if (typeKind == TypeKind::VARCHAR) {
+                auto values = AlignedBuffer::allocate(numGroups * sizeof(StringView), pool);
+                auto col = std::make_shared<FlatVector<StringView>>(pool, outTypes[k], nullptr, numGroups, values);
+                size_t totalLen = 0;
+                for (auto& [key, group] : groups_) {
+                    totalLen += group.keyValues[k].value<std::string>().size();
+                }
+                auto dataBuffer = AlignedBuffer::allocate(totalLen, pool);
+                char* bufPtr = dataBuffer->asMutable<char>();
+                size_t offset = 0;
+                int i = 0;
+                for (auto& [key, group] : groups_) {
+                    const auto& str = group.keyValues[k].value<std::string>();
+                    std::memcpy(bufPtr + offset, str.data(), str.size());
+                    col->mutableRawValues()[i++] = StringView(bufPtr + offset, str.size());
+                    offset += str.size();
+                }
+                col->addStringBuffer(dataBuffer);
+                outCols.push_back(col);
+            } else {
+                VELOX_FAIL("Unsupported grouping key type in AggregationOperator output.");
+            }
         }
         for(size_t j=0; j<aggs_.size(); ++j) {
             auto& info = aggs_[j];
@@ -588,10 +702,38 @@ public:
     bool isFinished() override { return produced_; }
 private:
     struct AggRes { int64_t sum = 0, count = 0; };
-    struct GroupState { std::vector<AggRes> aggResults; vector_size_t rowIdx; std::vector<VectorPtr> groupVecs; };
+    struct GroupState { std::vector<AggRes> aggResults; std::vector<Variant> keyValues; };
+    static Variant readVariant(const VectorPtr& vec, vector_size_t row) {
+        if (vec->isNullAt(row)) {
+            return Variant(vec->type()->kind());
+        }
+        switch (vec->type()->kind()) {
+            case TypeKind::BIGINT: {
+                auto simple = std::dynamic_pointer_cast<SimpleVector<int64_t>>(vec);
+                if (!simple) VELOX_FAIL("Expected BIGINT vector for grouping key.");
+                return Variant(simple->valueAt(row));
+            }
+            case TypeKind::INTEGER: {
+                auto simple = std::dynamic_pointer_cast<SimpleVector<int32_t>>(vec);
+                if (!simple) VELOX_FAIL("Expected INTEGER vector for grouping key.");
+                return Variant(simple->valueAt(row));
+            }
+            case TypeKind::VARCHAR: {
+                auto simple = std::dynamic_pointer_cast<SimpleVector<StringView>>(vec);
+                if (!simple) VELOX_FAIL("Expected VARCHAR vector for grouping key.");
+                auto sv = simple->valueAt(row);
+                return Variant(std::string(sv.data(), sv.size()));
+            }
+            default:
+                VELOX_FAIL("Unsupported grouping key type in AggregationOperator.");
+        }
+    }
     std::vector<AggregateInfo> aggs_; std::vector<std::string> groupingKeys_;
-    std::unordered_map<std::string, GroupState> groups_;
+    std::vector<int> groupColIndices_;
+    std::vector<TypePtr> groupingTypes_;
+    std::unordered_map<GroupKey, GroupState, GroupKeyHash> groups_;
     core::ExecCtx* ctx_; bool global_ = true, hasInput_ = false, finished_ = false, produced_ = false;
+    bool groupKeysInitialized_ = false;
     core::AggregationNode::Step step_{core::AggregationNode::Step::kSingle};
 };
 
