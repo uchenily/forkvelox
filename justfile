@@ -3,5 +3,6 @@ build:
 setup:
     cmake -G Ninja -B build
 
-run:
-    ./build/src/VeloxIn10MinDemo
+examples:
+    cmake --build build --target run-examples
+    # ctest --test-dir build --output-on-failure

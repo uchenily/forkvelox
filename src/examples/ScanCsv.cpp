@@ -16,20 +16,17 @@ using namespace facebook::velox;
 //   1) Header line: col_name,col_name,...
 //   2) Optional types line: BIGINT,INTEGER,VARCHAR,...
 //   3) Data lines: value,value,...
-// Usage: ScanCsvDemo {csv_file_path}
+// Usage: ScanCsvDemo [csv_file_path]
 int main(int argc, char** argv) {
   folly::init::Init init{&argc, &argv, false};
-
-  if (argc < 2) {
-    return 1;
-  }
 
   filesystems::registerLocalFileSystem();
   dwio::csv::registerCsvReaderFactory();
   memory::initializeMemoryManager(memory::MemoryManager::Options{});
   auto pool = memory::defaultMemoryPool();
 
-  std::string filePath{argv[1]};
+  const std::string filePath =
+      (argc >= 2) ? std::string{argv[1]} : std::string{"data/sample.csv"};
   dwio::common::ReaderOptions readerOpts{pool.get()};
   readerOpts.setFileFormat(dwio::common::FileFormat::CSV);
 
