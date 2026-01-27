@@ -1,6 +1,6 @@
-#include "velox/functions/prestosql/registration/RegistrationFunctions.h"
+#include "velox/functions/registration/RegistrationFunctions.h"
 
-namespace facebook::velox::functions::prestosql {
+namespace facebook::velox::functions {
 
 extern void registerArithmeticFunctions();
 extern void registerStringFunctions();

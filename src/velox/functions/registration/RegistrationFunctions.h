@@ -1,5 +1,5 @@
 #pragma once
 
-namespace facebook::velox::functions::prestosql {
+namespace facebook::velox::functions {
     void registerAllScalarFunctions();
 }

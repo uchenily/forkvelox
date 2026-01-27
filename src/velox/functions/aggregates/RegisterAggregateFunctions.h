@@ -1,4 +1,4 @@
 #pragma once
-namespace facebook::velox::aggregate::prestosql {
+namespace facebook::velox::aggregate {
     inline void registerAllAggregateFunctions() {}
 }

@@ -6,8 +6,8 @@
 #include "velox/exec/tests/utils/AssertQueryBuilder.h"
 #include "velox/exec/tests/utils/PlanBuilder.h"
 #include "velox/expression/Expr.h"
-#include "velox/functions/prestosql/aggregates/RegisterAggregateFunctions.h"
-#include "velox/functions/prestosql/registration/RegistrationFunctions.h"
+#include "velox/functions/aggregates/RegisterAggregateFunctions.h"
+#include "velox/functions/registration/RegistrationFunctions.h"
 #include "velox/parse/Expressions.h"
 #include "velox/parse/ExpressionsParser.h"
 #include "velox/parse/TypeResolver.h"
@@ -24,10 +24,10 @@ class VeloxIn10MinDemo : public VectorTestBase {
 
   VeloxIn10MinDemo() {
     // Register Presto scalar functions.
-    functions::prestosql::registerAllScalarFunctions();
+    functions::registerAllScalarFunctions();
 
     // Register Presto aggregate functions.
-    aggregate::prestosql::registerAllAggregateFunctions();
+    aggregate::registerAllAggregateFunctions();
 
     // Register type resolver with DuckDB SQL parser.
     parse::registerTypeResolver();

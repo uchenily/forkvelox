@@ -4,7 +4,7 @@
 #include "velox/expression/FunctionRegistry.h"
 #include "velox/buffer/Buffer.h"
 
-namespace facebook::velox::functions::prestosql {
+namespace facebook::velox::functions {
 
 using namespace facebook::velox::exec;
 

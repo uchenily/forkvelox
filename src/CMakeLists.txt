@@ -11,10 +11,10 @@ add_library(velox_common
     velox/exec/Task.cpp
     velox/expression/Expr.cpp
     velox/expression/FunctionRegistry.cpp
-    velox/functions/prestosql/Arithmetic.cpp
-    velox/functions/prestosql/StringFunctions.cpp
-    velox/functions/prestosql/Comparison.cpp
-    velox/functions/prestosql/registration/RegistrationFunctions.cpp
+    velox/functions/Arithmetic.cpp
+    velox/functions/StringFunctions.cpp
+    velox/functions/Comparison.cpp
+    velox/functions/registration/RegistrationFunctions.cpp
 )
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})

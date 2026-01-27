@@ -8,7 +8,7 @@
 #include <cctype>
 #include <cstring>
 
-namespace facebook::velox::functions::prestosql {
+namespace facebook::velox::functions {
 
 using namespace facebook::velox::exec;
 

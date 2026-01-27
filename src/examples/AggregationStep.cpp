@@ -9,7 +9,7 @@
 #include "velox/common/memory/Memory.h"
 #include "velox/exec/Task.h"
 #include "velox/exec/tests/utils/PlanBuilder.h"
-#include "velox/functions/prestosql/registration/RegistrationFunctions.h"
+#include "velox/functions/registration/RegistrationFunctions.h"
 #include "velox/parse/TypeResolver.h"
 #include "velox/type/Type.h"
 #include "velox/vector/ComplexVector.h"
@@ -61,7 +61,7 @@ int main(int argc, char** argv) {
   memory::initializeMemoryManager(memory::MemoryManager::Options{});
   auto pool = memory::defaultMemoryPool();
 
-  functions::prestosql::registerAllScalarFunctions();
+  functions::registerAllScalarFunctions();
   parse::registerTypeResolver();
 
   auto batch = makeBatch(pool.get(), {1, 2, 3, 4, 5, 6});
