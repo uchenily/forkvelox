@@ -1,5 +1,6 @@
 add_library(velox_common
     velox/common/memory/Memory.cpp
+    velox/common/base/Log.cpp
     velox/common/file/FileSystems.cpp
     velox/common/file/File.cpp
     velox/dwio/common/RowVectorFile.cpp
