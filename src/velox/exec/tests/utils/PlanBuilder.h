@@ -1,9 +1,12 @@
 #pragma once
+#include "velox/common/Tree.h"
 #include "velox/core/PlanNode.h"
 #include "velox/core/Expressions.h"
 #include "velox/parse/ExpressionsParser.h"
 #include "velox/tpch/gen/TpchGen.h"
+#include <iostream>
 #include <memory>
+#include <string_view>
 
 namespace facebook::velox::exec::test {
 
@@ -113,11 +116,34 @@ public:
          return *this;
     }
 
+    std::string planTree(std::string_view title = "") const {
+        if (!root_) {
+            auto empty = std::make_shared<common::Tree>("(empty plan)");
+            return common::DrawableTree::fromTree(empty)->render(title);
+        }
+        auto tree = buildPlanTree(root_);
+        return common::DrawableTree::fromTree(tree)->render(title);
+    }
+
+    void printPlanTree(std::string_view title = "") const {
+        std::cout << planTree(title);
+    }
+
     core::PlanNodePtr planNode() {
         return root_;
     }
 
 private:
+    static std::shared_ptr<common::Tree> buildPlanTree(
+        const core::PlanNodePtr& node) {
+        auto label = node->toString() + "(" + node->id() + ")";
+        auto tree = std::make_shared<common::Tree>(std::move(label));
+        for (const auto& source : node->sources()) {
+            tree->children.push_back(buildPlanTree(source));
+        }
+        return tree;
+    }
+
     std::shared_ptr<core::PlanNodeIdGenerator> generator_;
     core::PlanNodePtr root_;
 };

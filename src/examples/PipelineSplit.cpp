@@ -52,14 +52,16 @@ int main(int argc, char** argv) {
   }
 
   const std::string exchangeId = "pipeline_split_exchange";
-  auto plan = PlanBuilder()
+  auto builder = PlanBuilder()
                   .values(batches)
                   .filter("my_col % 2 == 1")
                   .orderBy({"my_col"}, true)
                   .localPartition(exchangeId)
                   .localMerge(exchangeId)
-                  .orderBy({"my_col"}, false)
-                  .planNode();
+                  .orderBy({"my_col"}, false);
+
+  builder.printPlanTree("PipelineSplit Plan");
+  auto plan = builder.planNode();
 
   auto task = Task::create(
       "pipeline_split_task",

@@ -100,11 +100,13 @@ int main(int argc, char** argv) {
   auto buildPlan1 = PlanBuilder(idGen).values({buildBatch1}).planNode();
   auto buildPlan2 = PlanBuilder(idGen).values({buildBatch2}).planNode();
 
-  auto plan = PlanBuilder(idGen)
+  auto builder = PlanBuilder(idGen)
                   .values({probeBatch})
                   .hashJoin({}, {}, buildPlan1, "", {})
-                  .hashJoin({}, {}, buildPlan2, "", {})
-                  .planNode();
+                  .hashJoin({}, {}, buildPlan2, "", {});
+
+  builder.printPlanTree("TwoJoin Plan");
+  auto plan = builder.planNode();
 
   auto queryCtx = core::QueryCtx::create();
   auto task = Task::create(

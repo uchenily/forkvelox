@@ -281,7 +281,7 @@ void VeloxIn10MinDemo::run() {
   auto planNodeIdGenerator = std::make_shared<core::PlanNodeIdGenerator>();
   core::PlanNodeId nationScanId;
   core::PlanNodeId regionScanId;
-  plan = PlanBuilder(planNodeIdGenerator)
+  auto builder = PlanBuilder(planNodeIdGenerator)
              .tpchTableScan(
                  tpch::Table::TBL_NATION, {"n_regionkey"}, 1 /*scaleFactor*/)
              .capturePlanNodeId(nationScanId)
@@ -298,8 +298,10 @@ void VeloxIn10MinDemo::run() {
                  "", // extra filter
                  {"r_name"})
              .singleAggregation({"r_name"}, {"count(1) as nation_cnt"})
-             .orderBy({"r_name"}, false)
-             .planNode();
+             .orderBy({"r_name"}, false);
+
+      builder.printPlanTree();
+      plan = builder.planNode();
 
   auto nationCnt = AssertQueryBuilder(plan)
                        .split(nationScanId, makeTpchSplit())

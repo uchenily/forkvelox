@@ -52,10 +52,11 @@ int main(int argc, char** argv) {
   }
 
   // only one pipeline
-  auto plan = PlanBuilder()
-                  .values(batches)
-                  .filter("my_col % 2 == 0")
-                  .planNode();
+  auto builder = PlanBuilder()
+                     .values(batches)
+                     .filter("my_col % 2 == 0");
+  builder.printPlanTree("TaskParallel Plan");
+  auto plan = builder.planNode();
   auto queryCtx = core::QueryCtx::create();
 
   auto task = Task::create(
