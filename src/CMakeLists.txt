@@ -4,8 +4,11 @@ add_library(velox_common
     velox/common/file/File.cpp
     velox/dwio/common/RowVectorFile.cpp
     velox/dwio/csv/CsvReader.cpp
+    velox/dwio/fvx/FvxReader.cpp
+    velox/dwio/fvx/FvxWriter.cpp
     velox/dwio/common/ReaderFactory.cpp
     velox/dwio/csv/RegisterCsvReader.cpp
+    velox/dwio/fvx/RegisterFvxReader.cpp
     velox/exec/LocalExchange.cpp
     velox/exec/LocalPlanner.cpp
     velox/exec/Task.cpp

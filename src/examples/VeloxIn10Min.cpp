@@ -8,7 +8,6 @@
 #include "velox/expression/Expr.h"
 #include "velox/functions/aggregates/RegisterAggregateFunctions.h"
 #include "velox/functions/registration/RegistrationFunctions.h"
-#include "velox/parse/Expressions.h"
 #include "velox/parse/ExpressionsParser.h"
 #include "velox/parse/TypeResolver.h"
 #include "velox/tpch/gen/TpchGen.h"

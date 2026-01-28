@@ -2,9 +2,11 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "velox/common/file/File.h"
 #include "velox/common/memory/MemoryPool.h"
+#include "velox/type/Variant.h"
 #include "velox/vector/BaseVector.h"
 
 namespace facebook::velox::dwio::common {
@@ -13,6 +15,7 @@ enum class FileFormat {
   ORC,
   DWRF,
   CSV,
+  FVX,
 };
 
 class BufferedInput {
@@ -44,7 +47,41 @@ private:
   FileFormat format_{FileFormat::ORC};
 };
 
-class RowReaderOptions {};
+enum class CompareOp {
+  EQ,
+  NE,
+  LT,
+  LE,
+  GT,
+  GE,
+};
+
+struct FilterCondition {
+  std::string column;
+  CompareOp op;
+  Variant value;
+};
+
+class RowReaderOptions {
+public:
+  void addFilter(FilterCondition filter) {
+    filters_.push_back(std::move(filter));
+  }
+
+  void setProjectedColumns(std::vector<std::string> columns) {
+    projectedColumns_ = std::move(columns);
+  }
+
+  const std::vector<FilterCondition>& filters() const { return filters_; }
+  const std::vector<std::string>& projectedColumns() const {
+    return projectedColumns_;
+  }
+  bool hasProjection() const { return !projectedColumns_.empty(); }
+
+private:
+  std::vector<FilterCondition> filters_;
+  std::vector<std::string> projectedColumns_;
+};
 
 class RowReader {
 public:
