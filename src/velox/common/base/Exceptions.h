@@ -26,13 +26,13 @@ namespace detail {
 template<typename... Args>
 [[noreturn]] void veloxCheckFail(const char* file, int line, const char* expr, std::format_string<Args...> fmt, Args&&... args) {
     std::string msg = std::format(fmt, std::forward<Args>(args)...);
-    std::string fullMsg = std::format("[{}:{}] Check failed: {} ", file, line, expr, msg);
+    std::string fullMsg = std::format("[{}:{}] Check failed: `{}` {}", file, line, expr, msg);
     throw VeloxRuntimeError(fullMsg);
 }
 
 // Overload for no format args
 [[noreturn]] inline void veloxCheckFail(const char* file, int line, const char* expr, const char* msg) {
-    std::string fullMsg = std::format("[{}:{}] Check failed: {} ", file, line, expr, msg);
+    std::string fullMsg = std::format("[{}:{}] Check failed: `{}` {}", file, line, expr, msg);
     throw VeloxRuntimeError(fullMsg);
 }
 } // namespace detail
