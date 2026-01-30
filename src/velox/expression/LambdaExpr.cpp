@@ -58,7 +58,8 @@ public:
           outerRow_(outerRow),
           execCtx_(execCtx) {
         auto outerType = asRowType(outerRow_->type());
-        VELOX_CHECK_NOT_NULL(outerType, "Lambda evaluation requires a RowVector input");
+        VELOX_CHECK_NOT_NULL(
+            outerType.get(), "Lambda evaluation requires a RowVector input");
 
         for (const auto& name : captureNames_) {
             const auto& names = outerType->names();

@@ -18,7 +18,8 @@ VectorPtr sliceElements(
     vector_size_t size,
     memory::MemoryPool* pool) {
     auto simple = std::dynamic_pointer_cast<SimpleVector<int64_t>>(elements);
-    VELOX_CHECK_NOT_NULL(simple, "transform supports ARRAY<BIGINT> in ForkVelox");
+    VELOX_CHECK_NOT_NULL(
+        simple.get(), "transform supports ARRAY<BIGINT> in ForkVelox");
 
     auto buffer = AlignedBuffer::allocate(size * sizeof(int64_t), pool);
     auto flat = std::make_shared<FlatVector<int64_t>>(pool, BIGINT(), nullptr, size, buffer);
@@ -40,10 +41,11 @@ public:
         VELOX_CHECK_EQ(args.size(), 2, "transform expects 2 arguments");
 
         auto arrayVector = std::dynamic_pointer_cast<ArrayVector>(args[0]);
-        VELOX_CHECK_NOT_NULL(arrayVector, "transform expects ARRAY input");
+        VELOX_CHECK_NOT_NULL(arrayVector.get(), "transform expects ARRAY input");
 
         auto functionVector = std::dynamic_pointer_cast<FunctionVector>(args[1]);
-        VELOX_CHECK_NOT_NULL(functionVector, "transform expects lambda input");
+        VELOX_CHECK_NOT_NULL(
+            functionVector.get(), "transform expects lambda input");
 
         const auto rowCount = rows.size();
         std::vector<int32_t> offsets(rowCount, 0);
@@ -74,8 +76,10 @@ public:
                 SelectivityVector elementRows(size, true);
                 entry.callable->apply(row, elementRows, context, {elementVector}, lambdaResult);
 
-                auto outValues = std::dynamic_pointer_cast<SimpleVector<int64_t>>(lambdaResult);
-                VELOX_CHECK_NOT_NULL(outValues, "transform expects lambda to return BIGINT");
+                auto outValues =
+                    std::dynamic_pointer_cast<SimpleVector<int64_t>>(lambdaResult);
+                VELOX_CHECK_NOT_NULL(
+                    outValues.get(), "transform expects lambda to return BIGINT");
 
                 for (vector_size_t i = 0; i < size; ++i) {
                     resultValues.push_back(outValues->valueAt(i));

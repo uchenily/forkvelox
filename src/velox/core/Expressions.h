@@ -139,13 +139,16 @@ public:
             if (name == "transform") {
                 VELOX_CHECK_EQ(call->inputs().size(), 2, "transform expects 2 arguments");
                 typedInputs.push_back(inferTypes(call->inputs()[0], rowType, pool));
-                auto arrayType = std::dynamic_pointer_cast<const ArrayType>(typedInputs[0]->type());
-                VELOX_CHECK_NOT_NULL(arrayType, "transform expects ARRAY input");
+                auto arrayType =
+                    std::dynamic_pointer_cast<const ArrayType>(typedInputs[0]->type());
+                VELOX_CHECK_NOT_NULL(arrayType.get(), "transform expects ARRAY input");
 
                 std::vector<TypePtr> lambdaInputs{arrayType->elementType()};
                 typedInputs.push_back(inferTypes(call->inputs()[1], rowType, pool, &lambdaInputs));
-                auto lambdaExpr = std::dynamic_pointer_cast<LambdaTypedExpr>(typedInputs[1]);
-                VELOX_CHECK_NOT_NULL(lambdaExpr, "transform expects lambda argument");
+                auto lambdaExpr =
+                    std::dynamic_pointer_cast<LambdaTypedExpr>(typedInputs[1]);
+                VELOX_CHECK_NOT_NULL(
+                    lambdaExpr.get(), "transform expects lambda argument");
 
                 type = ARRAY(lambdaExpr->body()->type());
             } else {
