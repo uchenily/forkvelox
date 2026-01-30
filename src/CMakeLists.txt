@@ -14,10 +14,12 @@ add_library(velox_common
     velox/exec/LocalPlanner.cpp
     velox/exec/Task.cpp
     velox/expression/Expr.cpp
+    velox/expression/LambdaExpr.cpp
     velox/expression/FunctionRegistry.cpp
     velox/functions/aggregates/AggregateFunction.cpp
     velox/functions/aggregates/RegisterAggregateFunctions.cpp
     velox/functions/Arithmetic.cpp
+    velox/functions/LambdaFunctions.cpp
     velox/functions/StringFunctions.cpp
     velox/functions/Comparison.cpp
     velox/functions/registration/RegistrationFunctions.cpp

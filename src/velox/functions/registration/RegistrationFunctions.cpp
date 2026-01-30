@@ -1,15 +1,15 @@
-#include "velox/functions/registration/RegistrationFunctions.h"
-
 namespace facebook::velox::functions {
 
 extern void registerArithmeticFunctions();
 extern void registerStringFunctions();
 extern void registerComparisonFunctions();
+extern void registerLambdaFunctions();
 
 void registerAllScalarFunctions() {
     registerArithmeticFunctions();
     registerStringFunctions();
     registerComparisonFunctions();
+    registerLambdaFunctions();
 }
 
 }

@@ -4,6 +4,7 @@
 #include "velox/type/Variant.h"
 #include <vector>
 #include <stdexcept>
+#include <algorithm>
 
 namespace facebook::velox::core {
 
@@ -62,9 +63,35 @@ private:
     std::string name_;
 };
 
+class LambdaTypedExpr : public ITypedExpr {
+public:
+    LambdaTypedExpr(std::shared_ptr<const RowType> signature, TypedExprPtr body)
+        : signature_(std::move(signature)), body_(std::move(body)) {}
+
+    std::shared_ptr<const Type> type() const override {
+        std::vector<TypePtr> args = signature_->children();
+        return FUNCTION(std::move(args), body_->type());
+    }
+
+    std::string toString() const override {
+        return "lambda " + signature_->toString() + " -> " + body_->toString();
+    }
+
+    const std::shared_ptr<const RowType>& signature() const { return signature_; }
+    const TypedExprPtr& body() const { return body_; }
+
+private:
+    std::shared_ptr<const RowType> signature_;
+    TypedExprPtr body_;
+};
+
 class Expressions {
 public:
-    static TypedExprPtr inferTypes(const TypedExprPtr& untyped, const std::shared_ptr<const RowType>& rowType, memory::MemoryPool* pool) {
+    static TypedExprPtr inferTypes(
+        const TypedExprPtr& untyped,
+        const std::shared_ptr<const RowType>& rowType,
+        memory::MemoryPool* pool,
+        const std::vector<TypePtr>* lambdaInputTypes = nullptr) {
         if (auto c = std::dynamic_pointer_cast<ConstantTypedExpr>(untyped)) {
             return c; // Constants are already typed
         }
@@ -80,22 +107,61 @@ public:
             throw std::runtime_error("Field not found: " + f->name());
         }
         
+        if (auto lambda = std::dynamic_pointer_cast<LambdaTypedExpr>(untyped)) {
+            VELOX_CHECK_NOT_NULL(lambdaInputTypes, "Lambda input types are required for type inference");
+            const auto& names = lambda->signature()->names();
+            VELOX_CHECK_EQ(names.size(), lambdaInputTypes->size());
+            std::vector<std::string> scopedNames = names;
+            std::vector<TypePtr> scopedTypes = *lambdaInputTypes;
+            if (rowType) {
+                const auto& outerNames = rowType->names();
+                for (size_t i = 0; i < outerNames.size(); ++i) {
+                    if (std::find(scopedNames.begin(), scopedNames.end(), outerNames[i]) == scopedNames.end()) {
+                        scopedNames.push_back(outerNames[i]);
+                        scopedTypes.push_back(rowType->childAt(i));
+                    }
+                }
+            }
+            auto lambdaScope = ROW(std::move(scopedNames), std::move(scopedTypes));
+            auto typedBody = inferTypes(lambda->body(), lambdaScope, pool);
+            auto lambdaSignature = ROW(
+                std::vector<std::string>(names.begin(), names.end()),
+                std::vector<TypePtr>(lambdaInputTypes->begin(), lambdaInputTypes->end()));
+            return std::make_shared<LambdaTypedExpr>(lambdaSignature, typedBody);
+        }
+
         if (auto call = std::dynamic_pointer_cast<CallTypedExpr>(untyped)) {
             std::vector<TypedExprPtr> typedInputs;
-            for (auto& in : call->inputs()) {
-                typedInputs.push_back(inferTypes(in, rowType, pool));
-            }
-            
             std::string name = call->name();
             std::shared_ptr<const Type> type;
             
             // Simple type inference
+            if (name == "transform") {
+                VELOX_CHECK_EQ(call->inputs().size(), 2, "transform expects 2 arguments");
+                typedInputs.push_back(inferTypes(call->inputs()[0], rowType, pool));
+                auto arrayType = std::dynamic_pointer_cast<const ArrayType>(typedInputs[0]->type());
+                VELOX_CHECK_NOT_NULL(arrayType, "transform expects ARRAY input");
+
+                std::vector<TypePtr> lambdaInputs{arrayType->elementType()};
+                typedInputs.push_back(inferTypes(call->inputs()[1], rowType, pool, &lambdaInputs));
+                auto lambdaExpr = std::dynamic_pointer_cast<LambdaTypedExpr>(typedInputs[1]);
+                VELOX_CHECK_NOT_NULL(lambdaExpr, "transform expects lambda argument");
+
+                type = ARRAY(lambdaExpr->body()->type());
+            } else {
+                for (auto& in : call->inputs()) {
+                    typedInputs.push_back(inferTypes(in, rowType, pool));
+                }
+            }
+
             if (name == "plus" || name == "minus" || name == "multiply" || name == "mod" || name == "divide") {
                 type = BIGINT(); 
             } else if (name == "concat" || name == "upper" || name == "substr") {
                 type = VARCHAR();
             } else if (name == "eq" || name == "neq" || name == "lt" || name == "gt" || name == "lte" || name == "gte") {
                 type = INTEGER();
+            } else if (name == "transform") {
+                // Type already inferred above.
             } else {
                 throw std::runtime_error("Unknown function in inference: " + name);
             }

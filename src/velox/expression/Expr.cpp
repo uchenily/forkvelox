@@ -1,6 +1,7 @@
 #include "velox/expression/Expr.h"
 #include "velox/core/Expressions.h"
 #include "velox/expression/VectorFunction.h"
+#include "velox/expression/LambdaExpr.h"
 #include "velox/vector/FlatVector.h"
 #include "velox/vector/ComplexVector.h"
 #include "velox/type/StringView.h"
@@ -9,6 +10,7 @@
 #include <algorithm>
 #include <cctype>
 #include <unordered_map>
+#include <unordered_set>
 #include <iomanip>
 
 namespace facebook::velox::exec {
@@ -128,12 +130,49 @@ public:
     }
 };
 
+void collectFieldNames(
+    const core::TypedExprPtr& expr,
+    std::unordered_set<std::string>& fieldNames) {
+    if (auto f = std::dynamic_pointer_cast<core::FieldAccessTypedExpr>(expr)) {
+        fieldNames.insert(f->name());
+        return;
+    }
+    if (auto call = std::dynamic_pointer_cast<core::CallTypedExpr>(expr)) {
+        for (const auto& input : call->inputs()) {
+            collectFieldNames(input, fieldNames);
+        }
+        return;
+    }
+    if (auto lambda = std::dynamic_pointer_cast<core::LambdaTypedExpr>(expr)) {
+        // Do not traverse into nested lambdas.
+        (void)lambda;
+        return;
+    }
+}
+
 ExprPtr compile(const core::TypedExprPtr& expr) {
     if (auto c = std::dynamic_pointer_cast<core::ConstantTypedExpr>(expr)) {
         return std::make_shared<ConstantExpr>(c->value());
     }
     if (auto f = std::dynamic_pointer_cast<core::FieldAccessTypedExpr>(expr)) {
         return std::make_shared<FieldReference>(f->name(), f->type());
+    }
+    if (auto lambda = std::dynamic_pointer_cast<core::LambdaTypedExpr>(expr)) {
+        std::unordered_set<std::string> fieldNames;
+        collectFieldNames(lambda->body(), fieldNames);
+        std::vector<std::string> captures;
+        const auto& paramNames = lambda->signature()->names();
+        for (const auto& name : fieldNames) {
+            if (std::find(paramNames.begin(), paramNames.end(), name) == paramNames.end()) {
+                captures.push_back(name);
+            }
+        }
+        auto bodyExpr = compile(lambda->body());
+        return std::make_shared<LambdaExpr>(
+            lambda->signature(),
+            std::move(bodyExpr),
+            std::move(captures),
+            lambda->type());
     }
     if (auto call = std::dynamic_pointer_cast<core::CallTypedExpr>(expr)) {
         std::vector<ExprPtr> args;

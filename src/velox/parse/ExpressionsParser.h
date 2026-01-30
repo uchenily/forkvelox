@@ -15,7 +15,8 @@ enum class TokenType {
     END, IDENTIFIER, NUMBER, 
     PLUS, MINUS, MUL, DIV, MOD, 
     LPAREN, RPAREN, COMMA,
-    EQ, NEQ, LT, GT, LTE, GTE
+    EQ, NEQ, LT, GT, LTE, GTE,
+    ARROW
 };
 
 struct Token {
@@ -48,7 +49,9 @@ public:
         pos_++;
         switch (c) {
             case '+': return {TokenType::PLUS, "+"};
-            case '-': return {TokenType::MINUS, "-"};
+            case '-':
+                if (pos_ < input_.size() && input_[pos_] == '>') { pos_++; return {TokenType::ARROW, "->"}; }
+                return {TokenType::MINUS, "-"};
             case '*': return {TokenType::MUL, "*"};
             case '/': return {TokenType::DIV, "/"};
             case '%': return {TokenType::MOD, "%"};
@@ -183,20 +186,47 @@ private:
         return left;
     }
 
+    bool isLambdaParameterList() {
+        if (current().type != TokenType::LPAREN) {
+            return false;
+        }
+        size_t i = pos_ + 1;
+        if (i >= tokens_.size() || tokens_[i].type != TokenType::IDENTIFIER) {
+            return false;
+        }
+        ++i;
+        while (i < tokens_.size() && tokens_[i].type == TokenType::COMMA) {
+            ++i;
+            if (i >= tokens_.size() || tokens_[i].type != TokenType::IDENTIFIER) {
+                return false;
+            }
+            ++i;
+        }
+        if (i >= tokens_.size() || tokens_[i].type != TokenType::RPAREN) {
+            return false;
+        }
+        ++i;
+        return i < tokens_.size() && tokens_[i].type == TokenType::ARROW;
+    }
+
+    core::TypedExprPtr parseLambdaAfterParams(std::vector<std::string> params) {
+        expect(TokenType::ARROW);
+        auto body = parseExpression();
+        std::vector<TypePtr> paramTypes(params.size(), UNKNOWN());
+        auto signature = ROW(std::move(params), std::move(paramTypes));
+        return std::make_shared<core::LambdaTypedExpr>(signature, body);
+    }
+
     core::TypedExprPtr parsePrimary() {
-        if (match(TokenType::LPAREN)) {
-            auto expr = parseExpression();
-            expect(TokenType::RPAREN);
-            return expr;
-        }
-
-        if (current().type == TokenType::NUMBER) {
-            int64_t val = std::stoll(consume().text);
-            return std::make_shared<core::ConstantTypedExpr>(Variant(val));
-        }
-
         if (current().type == TokenType::IDENTIFIER) {
             std::string name = consume().text;
+            if (match(TokenType::ARROW)) {
+                std::vector<std::string> params{name};
+                auto body = parseExpression();
+                std::vector<TypePtr> paramTypes(params.size(), UNKNOWN());
+                auto signature = ROW(std::move(params), std::move(paramTypes));
+                return std::make_shared<core::LambdaTypedExpr>(signature, body);
+            }
             if (match(TokenType::LPAREN)) {
                 // Function call
                 std::vector<core::TypedExprPtr> args;
@@ -211,12 +241,35 @@ private:
                     UNKNOWN(),
                     args,
                     name);
-            } else {
-                // Field access
-                return std::make_shared<core::FieldAccessTypedExpr>(
-                    UNKNOWN(),
-                    name);
             }
+            // Field access
+            return std::make_shared<core::FieldAccessTypedExpr>(
+                UNKNOWN(),
+                name);
+        }
+
+        if (current().type == TokenType::LPAREN) {
+            if (isLambdaParameterList()) {
+                expect(TokenType::LPAREN);
+                std::vector<std::string> params;
+                while (current().type == TokenType::IDENTIFIER) {
+                    params.push_back(consume().text);
+                    if (!match(TokenType::COMMA)) {
+                        break;
+                    }
+                }
+                expect(TokenType::RPAREN);
+                return parseLambdaAfterParams(std::move(params));
+            }
+            expect(TokenType::LPAREN);
+            auto expr = parseExpression();
+            expect(TokenType::RPAREN);
+            return expr;
+        }
+
+        if (current().type == TokenType::NUMBER) {
+            int64_t val = std::stoll(consume().text);
+            return std::make_shared<core::ConstantTypedExpr>(Variant(val));
         }
 
         throw std::runtime_error("Unexpected token in primary: " + current().text);

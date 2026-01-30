@@ -35,6 +35,33 @@ public:
         bits_.resize(bits::nwords(size), value ? ~0ULL : 0);
         allSelected_ = value; // Simplification
     }
+
+    bool hasSelections() const {
+        for (vector_size_t i = 0; i < size_; ++i) {
+            if (isValid(i)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void intersect(const SelectivityVector& other) {
+        VELOX_CHECK_EQ(size_, other.size_);
+        for (size_t i = 0; i < bits_.size(); ++i) {
+            bits_[i] &= other.bits_[i];
+        }
+        allSelected_ = false;
+    }
+
+    bool intersects(const SelectivityVector& other) const {
+        VELOX_CHECK_EQ(size_, other.size_);
+        for (vector_size_t i = 0; i < size_; ++i) {
+            if (isValid(i) && other.isValid(i)) {
+                return true;
+            }
+        }
+        return false;
+    }
     
     template <typename Callable>
     void applyToSelected(Callable func) const {

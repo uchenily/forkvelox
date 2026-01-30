@@ -24,6 +24,7 @@ enum class TypeKind {
     ARRAY,
     MAP,
     ROW,
+    FUNCTION,
     UNKNOWN,
     INVALID
 };
@@ -117,6 +118,63 @@ private:
     std::vector<TypePtr> children_;
 };
 
+class ArrayType : public Type {
+public:
+    explicit ArrayType(TypePtr elementType)
+        : Type(TypeKind::ARRAY), elementType_(std::move(elementType)) {}
+
+    const TypePtr& elementType() const { return elementType_; }
+
+    std::string toString() const override {
+        return "ARRAY<" + elementType_->toString() + ">";
+    }
+
+    bool equivalent(const Type& other) const override {
+        if (!Type::equivalent(other)) return false;
+        const auto* otherArray = static_cast<const ArrayType*>(&other);
+        return elementType_->equivalent(*otherArray->elementType_);
+    }
+
+private:
+    TypePtr elementType_;
+};
+
+class FunctionType : public Type {
+public:
+    FunctionType(std::vector<TypePtr> argumentTypes, TypePtr returnType)
+        : Type(TypeKind::FUNCTION),
+          argumentTypes_(std::move(argumentTypes)),
+          returnType_(std::move(returnType)) {}
+
+    const std::vector<TypePtr>& argumentTypes() const { return argumentTypes_; }
+    const TypePtr& returnType() const { return returnType_; }
+
+    std::string toString() const override {
+        std::string s = "FUNCTION(";
+        for (size_t i = 0; i < argumentTypes_.size(); ++i) {
+            if (i > 0) s += ", ";
+            s += argumentTypes_[i]->toString();
+        }
+        s += ") -> ";
+        s += returnType_->toString();
+        return s;
+    }
+
+    bool equivalent(const Type& other) const override {
+        if (!Type::equivalent(other)) return false;
+        const auto* otherFunc = static_cast<const FunctionType*>(&other);
+        if (argumentTypes_.size() != otherFunc->argumentTypes_.size()) return false;
+        for (size_t i = 0; i < argumentTypes_.size(); ++i) {
+            if (!argumentTypes_[i]->equivalent(*otherFunc->argumentTypes_[i])) return false;
+        }
+        return returnType_->equivalent(*otherFunc->returnType_);
+    }
+
+private:
+    std::vector<TypePtr> argumentTypes_;
+    TypePtr returnType_;
+};
+
 class UnknownType : public Type {
 public:
     UnknownType() : Type(TypeKind::UNKNOWN) {}
@@ -132,6 +190,14 @@ inline std::shared_ptr<const Type> UNKNOWN() { return std::make_shared<UnknownTy
 
 inline std::shared_ptr<const RowType> ROW(std::vector<std::string> names, std::vector<TypePtr> types) {
     return std::make_shared<RowType>(std::move(names), std::move(types));
+}
+
+inline std::shared_ptr<const ArrayType> ARRAY(TypePtr elementType) {
+    return std::make_shared<ArrayType>(std::move(elementType));
+}
+
+inline std::shared_ptr<const FunctionType> FUNCTION(std::vector<TypePtr> argumentTypes, TypePtr returnType) {
+    return std::make_shared<FunctionType>(std::move(argumentTypes), std::move(returnType));
 }
 
 inline std::shared_ptr<const RowType> asRowType(const std::shared_ptr<const Type>& type) {
