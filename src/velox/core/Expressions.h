@@ -136,21 +136,26 @@ public:
             std::shared_ptr<const Type> type;
             
             // Simple type inference
-            if (name == "transform") {
-                VELOX_CHECK_EQ(call->inputs().size(), 2, "transform expects 2 arguments");
+            if (name == "transform" || name == "filter") {
+                VELOX_CHECK_EQ(call->inputs().size(), 2, "{} expects 2 arguments", name);
                 typedInputs.push_back(inferTypes(call->inputs()[0], rowType, pool));
                 auto arrayType =
                     std::dynamic_pointer_cast<const ArrayType>(typedInputs[0]->type());
-                VELOX_CHECK_NOT_NULL(arrayType.get(), "transform expects ARRAY input");
+                VELOX_CHECK_NOT_NULL(arrayType.get(), "{} expects ARRAY input", name);
 
                 std::vector<TypePtr> lambdaInputs{arrayType->elementType()};
-                typedInputs.push_back(inferTypes(call->inputs()[1], rowType, pool, &lambdaInputs));
+                typedInputs.push_back(
+                    inferTypes(call->inputs()[1], rowType, pool, &lambdaInputs));
                 auto lambdaExpr =
                     std::dynamic_pointer_cast<LambdaTypedExpr>(typedInputs[1]);
                 VELOX_CHECK_NOT_NULL(
-                    lambdaExpr.get(), "transform expects lambda argument");
+                    lambdaExpr.get(), "{} expects lambda argument", name);
 
-                type = ARRAY(lambdaExpr->body()->type());
+                if (name == "transform") {
+                    type = ARRAY(lambdaExpr->body()->type());
+                } else {
+                    type = typedInputs[0]->type();
+                }
             } else {
                 for (auto& in : call->inputs()) {
                     typedInputs.push_back(inferTypes(in, rowType, pool));
@@ -163,7 +168,7 @@ public:
                 type = VARCHAR();
             } else if (name == "eq" || name == "neq" || name == "lt" || name == "gt" || name == "lte" || name == "gte") {
                 type = INTEGER();
-            } else if (name == "transform") {
+            } else if (name == "transform" || name == "filter") {
                 // Type already inferred above.
             } else {
                 throw std::runtime_error("Unknown function in inference: " + name);
