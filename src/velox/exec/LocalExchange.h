@@ -14,7 +14,7 @@ public:
   explicit LocalExchangeQueue(size_t numProducers);
 
   void enqueue(RowVectorPtr batch);
-  bool dequeue(RowVectorPtr& out);
+  bool dequeue(RowVectorPtr &out);
   void producerFinished();
 
 private:

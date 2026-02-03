@@ -21,7 +21,7 @@ using namespace facebook::velox::exec;
 using namespace facebook::velox::exec::test;
 
 // Demo: a multi-pipeline plan split by LocalPartition/LocalMerge.
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   folly::init::Init init{&argc, &argv, false};
 
   memory::initializeMemoryManager(memory::MemoryManager::Options{});
@@ -41,41 +41,40 @@ int main(int argc, char** argv) {
   for (int batch = 0; batch < numBatches; ++batch) {
     auto buffer =
         AlignedBuffer::allocate(batchSize * sizeof(int64_t), pool.get());
-    auto* rawValues = buffer->asMutable<int64_t>();
+    auto *rawValues = buffer->asMutable<int64_t>();
     std::iota(rawValues, rawValues + batchSize, batch * batchSize);
     std::shuffle(rawValues, rawValues + batchSize, rng);
 
     auto vector = std::make_shared<FlatVector<int64_t>>(
         pool.get(), BIGINT(), nullptr, batchSize, buffer);
-    batches.push_back(std::make_shared<RowVector>(
-        pool.get(), rowType, nullptr, batchSize, std::vector<VectorPtr>{vector}));
+    batches.push_back(
+        std::make_shared<RowVector>(pool.get(), rowType, nullptr, batchSize,
+                                    std::vector<VectorPtr>{vector}));
   }
 
   const std::string exchangeId = "pipeline_split_exchange";
   auto builder = PlanBuilder()
-                  .values(batches)
-                  .filter("my_col % 2 == 1")
-                  .orderBy({"my_col"}, true)
-                  .localPartition(exchangeId)
-                  .localMerge(exchangeId)
-                  .orderBy({"my_col"}, false);
+                     .values(batches)
+                     .filter("my_col % 2 == 1")
+                     .orderBy({"my_col"}, true)
+                     .localPartition(exchangeId)
+                     .localMerge(exchangeId)
+                     .orderBy({"my_col"}, false);
 
   builder.printPlanTree("PipelineSplit Plan");
   auto plan = builder.planNode();
 
-  auto task = Task::create(
-      "pipeline_split_task",
-      plan,
-      core::QueryCtx::create(),
-      Task::ExecutionMode::kParallel);
+  auto task =
+      Task::create("pipeline_split_task", plan, core::QueryCtx::create(),
+                   Task::ExecutionMode::kParallel);
   task->setMaxDrivers(3);
 
   auto results = task->run();
-  std::cout << "Pipeline-split task produced " << results.size()
-            << " batches." << std::endl;
+  std::cout << "Pipeline-split task produced " << results.size() << " batches."
+            << std::endl;
 
   std::vector<std::string> actualRows;
-  for (const auto& batch : results) {
+  for (const auto &batch : results) {
     if (!batch) {
       continue;
     }

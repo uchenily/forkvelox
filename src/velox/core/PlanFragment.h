@@ -3,9 +3,10 @@
 namespace facebook::velox::core {
 class PlanFragment {
 public:
-    PlanFragment(PlanNodePtr root) : root_(root) {}
-    PlanNodePtr root() const { return root_; }
+  PlanFragment(PlanNodePtr root) : root_(root) {}
+  PlanNodePtr root() const { return root_; }
+
 private:
-    PlanNodePtr root_;
+  PlanNodePtr root_;
 };
-}
+} // namespace facebook::velox::core

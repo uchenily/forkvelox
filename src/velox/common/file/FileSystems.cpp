@@ -1,9 +1,9 @@
 #include "velox/common/file/FileSystems.h"
-#include "velox/common/file/File.h"
 #include "folly/executors/CPUThreadPoolExecutor.h"
 #include "folly/synchronization/CallOnce.h"
 #include "folly/system/HardwareConcurrency.h"
 #include "velox/common/base/Exceptions.h"
+#include "velox/common/file/File.h"
 
 #include <cstdio>
 #include <filesystem>
@@ -18,11 +18,10 @@ constexpr std::string_view kFileScheme("file:");
 using RegisteredFileSystems = std::vector<std::pair<
     std::function<bool(std::string_view)>,
     std::function<std::shared_ptr<FileSystem>(
-        std::shared_ptr<const config::ConfigBase>,
-        std::string_view)>>>;
+        std::shared_ptr<const config::ConfigBase>, std::string_view)>>>;
 
-RegisteredFileSystems& registeredFileSystems() {
-  static RegisteredFileSystems* fss = new RegisteredFileSystems();
+RegisteredFileSystems &registeredFileSystems() {
+  static RegisteredFileSystems *fss = new RegisteredFileSystems();
   return *fss;
 }
 
@@ -31,28 +30,28 @@ RegisteredFileSystems& registeredFileSystems() {
 void registerFileSystem(
     std::function<bool(std::string_view)> schemeMatcher,
     std::function<std::shared_ptr<FileSystem>(
-        std::shared_ptr<const config::ConfigBase>,
-        std::string_view)> fileSystemGenerator) {
+        std::shared_ptr<const config::ConfigBase>, std::string_view)>
+        fileSystemGenerator) {
   registeredFileSystems().emplace_back(schemeMatcher, fileSystemGenerator);
 }
 
-std::shared_ptr<FileSystem> getFileSystem(
-    std::string_view filePath,
-    std::shared_ptr<const config::ConfigBase> properties) {
-  const auto& filesystems = registeredFileSystems();
-  for (const auto& p : filesystems) {
+std::shared_ptr<FileSystem>
+getFileSystem(std::string_view filePath,
+              std::shared_ptr<const config::ConfigBase> properties) {
+  const auto &filesystems = registeredFileSystems();
+  for (const auto &p : filesystems) {
     if (p.first(filePath)) {
       return p.second(properties, filePath);
     }
   }
-  // Fallback to local file system if no matcher? 
+  // Fallback to local file system if no matcher?
   // For now fail as per original
   VELOX_FAIL("No registered file system matched with file path '{}'", filePath);
 }
 
-bool isPathSupportedByRegisteredFileSystems(const std::string_view& filePath) {
-  const auto& filesystems = registeredFileSystems();
-  for (const auto& p : filesystems) {
+bool isPathSupportedByRegisteredFileSystems(const std::string_view &filePath) {
+  const auto &filesystems = registeredFileSystems();
+  for (const auto &p : filesystems) {
     if (p.first(filePath)) {
       return true;
     }
@@ -65,19 +64,16 @@ namespace {
 folly::once_flag localFSInstantiationFlag;
 
 class LocalFileSystem : public FileSystem {
- public:
-  LocalFileSystem(
-      std::shared_ptr<const config::ConfigBase> config,
-      const FileSystemOptions& options)
+public:
+  LocalFileSystem(std::shared_ptr<const config::ConfigBase> config,
+                  const FileSystemOptions &options)
       : FileSystem(config) {
-          // Executor init stubbed
-      }
+    // Executor init stubbed
+  }
 
   ~LocalFileSystem() override {}
 
-  std::string name() const override {
-    return "Local FS";
-  }
+  std::string name() const override { return "Local FS"; }
 
   inline std::string_view extractPath(std::string_view path) const override {
     if (path.find(kFileScheme) == 0) {
@@ -86,21 +82,17 @@ class LocalFileSystem : public FileSystem {
     return path;
   }
 
-  std::unique_ptr<ReadFile> openFileForRead(
-      std::string_view path,
-      const FileOptions& options) override {
-    return std::make_unique<LocalReadFile>(
-        extractPath(path), nullptr, options.bufferIo);
+  std::unique_ptr<ReadFile>
+  openFileForRead(std::string_view path, const FileOptions &options) override {
+    return std::make_unique<LocalReadFile>(extractPath(path), nullptr,
+                                           options.bufferIo);
   }
 
-  std::unique_ptr<WriteFile> openFileForWrite(
-      std::string_view path,
-      const FileOptions& options) override {
+  std::unique_ptr<WriteFile>
+  openFileForWrite(std::string_view path, const FileOptions &options) override {
     return std::make_unique<LocalWriteFile>(
-        extractPath(path),
-        options.shouldCreateParentDirectories,
-        options.shouldThrowOnFileAlreadyExists,
-        options.bufferIo);
+        extractPath(path), options.shouldCreateParentDirectories,
+        options.shouldThrowOnFileAlreadyExists, options.bufferIo);
   }
 
   void remove(std::string_view path) override {
@@ -108,10 +100,8 @@ class LocalFileSystem : public FileSystem {
     std::remove(std::string(file).c_str());
   }
 
-  void rename(
-      std::string_view oldPath,
-      std::string_view newPath,
-      bool overwrite) override {
+  void rename(std::string_view oldPath, std::string_view newPath,
+              bool overwrite) override {
     auto oldFile = extractPath(oldPath);
     auto newFile = extractPath(newPath);
     ::rename(std::string(oldFile).c_str(), std::string(newFile).c_str());
@@ -131,15 +121,16 @@ class LocalFileSystem : public FileSystem {
     auto directoryPath = extractPath(path);
     const std::filesystem::path folder{directoryPath};
     std::vector<std::string> filePaths;
-    if (std::filesystem::exists(folder) && std::filesystem::is_directory(folder)) {
-        for (auto const& entry : std::filesystem::directory_iterator{folder}) {
-           filePaths.push_back(entry.path());
-        }
+    if (std::filesystem::exists(folder) &&
+        std::filesystem::is_directory(folder)) {
+      for (auto const &entry : std::filesystem::directory_iterator{folder}) {
+        filePaths.push_back(entry.path());
+      }
     }
     return filePaths;
   }
 
-  void mkdir(std::string_view path, const DirectoryOptions& options) override {
+  void mkdir(std::string_view path, const DirectoryOptions &options) override {
     std::filesystem::create_directories(path);
   }
 
@@ -167,12 +158,11 @@ class LocalFileSystem : public FileSystem {
     };
   }
 
-  static std::function<std::shared_ptr<
-      FileSystem>(std::shared_ptr<const config::ConfigBase>, std::string_view)>
-  fileSystemGenerator(const FileSystemOptions& options) {
-    return [options](
-               std::shared_ptr<const config::ConfigBase> properties,
-               std::string_view filePath) {
+  static std::function<std::shared_ptr<FileSystem>(
+      std::shared_ptr<const config::ConfigBase>, std::string_view)>
+  fileSystemGenerator(const FileSystemOptions &options) {
+    return [options](std::shared_ptr<const config::ConfigBase> properties,
+                     std::string_view filePath) {
       static std::shared_ptr<FileSystem> lfs;
       folly::call_once(localFSInstantiationFlag, [properties, options]() {
         lfs = std::make_shared<LocalFileSystem>(properties, options);
@@ -183,9 +173,8 @@ class LocalFileSystem : public FileSystem {
 };
 } // namespace
 
-void registerLocalFileSystem(const FileSystemOptions& options) {
-  registerFileSystem(
-      LocalFileSystem::schemeMatcher(),
-      LocalFileSystem::fileSystemGenerator(options));
+void registerLocalFileSystem(const FileSystemOptions &options) {
+  registerFileSystem(LocalFileSystem::schemeMatcher(),
+                     LocalFileSystem::fileSystemGenerator(options));
 }
 } // namespace facebook::velox::filesystems

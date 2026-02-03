@@ -1,21 +1,21 @@
 #pragma once
 
-#include <fcntl.h>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <fcntl.h>
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
-#include <vector>
-#include <memory>
 #include <sys/uio.h>
+#include <vector>
 
 #include "folly/Executor.h"
 #include "folly/Range.h"
+#include "folly/container/F14Map.h"
 #include "folly/futures/Future.h"
 #include "folly/io/IOBuf.h"
-#include "folly/container/F14Map.h"
 
 #include "velox/common/base/Exceptions.h"
 #include "velox/common/file/Region.h"
@@ -29,41 +29,33 @@ struct FileIoContext {
 };
 
 class ReadFile {
- public:
+public:
   virtual ~ReadFile() = default;
 
-  virtual std::string_view pread(
-      uint64_t offset,
-      uint64_t length,
-      void* buf,
-      const FileIoContext& context = FileIoContext()) const = 0;
+  virtual std::string_view
+  pread(uint64_t offset, uint64_t length, void *buf,
+        const FileIoContext &context = FileIoContext()) const = 0;
 
-  virtual std::string pread(
-      uint64_t offset,
-      uint64_t length,
-      const FileIoContext& context = FileIoContext()) const;
+  virtual std::string
+  pread(uint64_t offset, uint64_t length,
+        const FileIoContext &context = FileIoContext()) const;
 
-  virtual uint64_t preadv(
-      uint64_t /*offset*/,
-      const std::vector<folly::Range<char*>>& /*buffers*/,
-      const FileIoContext& context = FileIoContext()) const;
+  virtual uint64_t preadv(uint64_t /*offset*/,
+                          const std::vector<folly::Range<char *>> & /*buffers*/,
+                          const FileIoContext &context = FileIoContext()) const;
 
-  virtual uint64_t preadv(
-      folly::Range<const common::Region*> regions,
-      folly::Range<folly::IOBuf*> iobufs,
-      const FileIoContext& context = FileIoContext()) const;
+  virtual uint64_t preadv(folly::Range<const common::Region *> regions,
+                          folly::Range<folly::IOBuf *> iobufs,
+                          const FileIoContext &context = FileIoContext()) const;
 
-  virtual folly::SemiFuture<uint64_t> preadvAsync(
-      uint64_t offset,
-      const std::vector<folly::Range<char*>>& buffers,
-      const FileIoContext& context = FileIoContext()) const {
-      // Synchronous fallback
-      return folly::makeSemiFuture<uint64_t>(preadv(offset, buffers, context));
+  virtual folly::SemiFuture<uint64_t>
+  preadvAsync(uint64_t offset, const std::vector<folly::Range<char *>> &buffers,
+              const FileIoContext &context = FileIoContext()) const {
+    // Synchronous fallback
+    return folly::makeSemiFuture<uint64_t>(preadv(offset, buffers, context));
   }
 
-  virtual bool hasPreadvAsync() const {
-    return false;
-  }
+  virtual bool hasPreadvAsync() const { return false; }
 
   virtual bool shouldCoalesce() const = 0;
 
@@ -71,24 +63,20 @@ class ReadFile {
 
   virtual uint64_t memoryUsage() const = 0;
 
-  virtual uint64_t bytesRead() const {
-    return bytesRead_;
-  }
+  virtual uint64_t bytesRead() const { return bytesRead_; }
 
-  virtual void resetBytesRead() {
-    bytesRead_ = 0;
-  }
+  virtual void resetBytesRead() { bytesRead_ = 0; }
 
   virtual std::string getName() const = 0;
 
   virtual uint64_t getNaturalReadSize() const = 0;
 
- protected:
+protected:
   mutable std::atomic<uint64_t> bytesRead_ = 0;
 };
 
 class WriteFile {
- public:
+public:
   virtual ~WriteFile() = default;
 
   virtual void append(std::string_view data) = 0;
@@ -97,10 +85,8 @@ class WriteFile {
     VELOX_NYI("IOBuf appending is not implemented");
   }
 
-  virtual void write(
-      const std::vector<iovec>& /* iovecs */,
-      int64_t /* offset */,
-      int64_t /* length */
+  virtual void write(const std::vector<iovec> & /* iovecs */,
+                     int64_t /* offset */, int64_t /* length */
   ) {
     VELOX_NYI("{} is not implemented", __FUNCTION__);
   }
@@ -112,7 +98,7 @@ class WriteFile {
   virtual void flush() = 0;
 
   virtual void setAttributes(
-      const std::unordered_map<std::string, std::string>& /* attributes */) {
+      const std::unordered_map<std::string, std::string> & /* attributes */) {
     VELOX_NYI("{} is not implemented", __FUNCTION__);
   }
 
@@ -130,55 +116,42 @@ class WriteFile {
 };
 
 class InMemoryReadFile : public ReadFile {
- public:
+public:
   explicit InMemoryReadFile(std::string_view file) : file_(file) {}
 
   explicit InMemoryReadFile(std::string file)
       : ownedFile_(std::move(file)), file_(ownedFile_) {}
 
-  std::string_view pread(
-      uint64_t offset,
-      uint64_t length,
-      void* buf,
-      const FileIoContext& context = FileIoContext()) const override;
+  std::string_view
+  pread(uint64_t offset, uint64_t length, void *buf,
+        const FileIoContext &context = FileIoContext()) const override;
 
-  std::string pread(
-      uint64_t offset,
-      uint64_t length,
-      const FileIoContext& context = FileIoContext()) const override;
+  std::string
+  pread(uint64_t offset, uint64_t length,
+        const FileIoContext &context = FileIoContext()) const override;
 
-  uint64_t size() const final {
-    return file_.size();
-  }
+  uint64_t size() const final { return file_.size(); }
 
-  uint64_t memoryUsage() const final {
-    return size();
-  }
+  uint64_t memoryUsage() const final { return size(); }
 
   void setShouldCoalesce(bool shouldCoalesce) {
     shouldCoalesce_ = shouldCoalesce;
   }
-  bool shouldCoalesce() const final {
-    return shouldCoalesce_;
-  }
+  bool shouldCoalesce() const final { return shouldCoalesce_; }
 
-  std::string getName() const override {
-    return "<InMemoryReadFile>";
-  }
+  std::string getName() const override { return "<InMemoryReadFile>"; }
 
-  uint64_t getNaturalReadSize() const override {
-    return 1024;
-  }
+  uint64_t getNaturalReadSize() const override { return 1024; }
 
- private:
+private:
   const std::string ownedFile_;
   const std::string_view file_;
   bool shouldCoalesce_ = false;
 };
 
 class InMemoryWriteFile final : public WriteFile {
- public:
-  explicit InMemoryWriteFile(std::string* file) : file_(file) {}
+public:
+  explicit InMemoryWriteFile(std::string *file) : file_(file) {}
 
   void append(std::string_view data) final;
   void append(std::unique_ptr<folly::IOBuf> data) final;
@@ -186,48 +159,38 @@ class InMemoryWriteFile final : public WriteFile {
   void close() final {}
   uint64_t size() const final;
 
- private:
-  std::string* file_;
+private:
+  std::string *file_;
 };
 
 class LocalReadFile final : public ReadFile {
- public:
-  LocalReadFile(
-      std::string_view path,
-      folly::Executor* executor = nullptr,
-      bool bufferIo = true);
+public:
+  LocalReadFile(std::string_view path, folly::Executor *executor = nullptr,
+                bool bufferIo = true);
 
-  LocalReadFile(int32_t fd, folly::Executor* executor = nullptr);
+  LocalReadFile(int32_t fd, folly::Executor *executor = nullptr);
 
   ~LocalReadFile();
 
-  std::string_view pread(
-      uint64_t offset,
-      uint64_t length,
-      void* buf,
-      const FileIoContext& context = FileIoContext()) const final;
+  std::string_view
+  pread(uint64_t offset, uint64_t length, void *buf,
+        const FileIoContext &context = FileIoContext()) const final;
 
   uint64_t size() const final;
 
-  uint64_t preadv(
-      uint64_t offset,
-      const std::vector<folly::Range<char*>>& buffers,
-      const FileIoContext& context = FileIoContext()) const final;
+  uint64_t preadv(uint64_t offset,
+                  const std::vector<folly::Range<char *>> &buffers,
+                  const FileIoContext &context = FileIoContext()) const final;
 
-  folly::SemiFuture<uint64_t> preadvAsync(
-      uint64_t offset,
-      const std::vector<folly::Range<char*>>& buffers,
-      const FileIoContext& context = FileIoContext()) const override;
+  folly::SemiFuture<uint64_t>
+  preadvAsync(uint64_t offset, const std::vector<folly::Range<char *>> &buffers,
+              const FileIoContext &context = FileIoContext()) const override;
 
-  bool hasPreadvAsync() const override {
-    return executor_ != nullptr;
-  }
+  bool hasPreadvAsync() const override { return executor_ != nullptr; }
 
   uint64_t memoryUsage() const final;
 
-  bool shouldCoalesce() const final {
-    return false;
-  }
+  bool shouldCoalesce() const final { return false; }
 
   std::string getName() const override {
     if (path_.empty()) {
@@ -236,34 +199,31 @@ class LocalReadFile final : public ReadFile {
     return path_;
   }
 
-  uint64_t getNaturalReadSize() const override {
-    return 10 << 20;
-  }
+  uint64_t getNaturalReadSize() const override { return 10 << 20; }
 
- private:
-  void preadInternal(uint64_t offset, uint64_t length, char* pos) const;
+private:
+  void preadInternal(uint64_t offset, uint64_t length, char *pos) const;
 
-  folly::Executor* const executor_;
+  folly::Executor *const executor_;
   std::string path_;
   int32_t fd_;
   long size_;
 };
 
 class LocalWriteFile final : public WriteFile {
- public:
+public:
   struct Attributes {
     static constexpr std::string_view kNoCow{"write-on-copy-disabled"};
     static constexpr bool kDefaultNoCow{false};
 
-    static bool cowDisabled(
-        const std::unordered_map<std::string, std::string>& attrs);
+    static bool
+    cowDisabled(const std::unordered_map<std::string, std::string> &attrs);
   };
 
-  explicit LocalWriteFile(
-      std::string_view path,
-      bool shouldCreateParentDirectories = false,
-      bool shouldThrowOnFileAlreadyExists = true,
-      bool bufferIo = true);
+  explicit LocalWriteFile(std::string_view path,
+                          bool shouldCreateParentDirectories = false,
+                          bool shouldThrowOnFileAlreadyExists = true,
+                          bool bufferIo = true);
 
   ~LocalWriteFile();
 
@@ -271,29 +231,25 @@ class LocalWriteFile final : public WriteFile {
 
   void append(std::unique_ptr<folly::IOBuf> data) final;
 
-  void write(const std::vector<iovec>& iovecs, int64_t offset, int64_t length)
-      final;
+  void write(const std::vector<iovec> &iovecs, int64_t offset,
+             int64_t length) final;
 
   void truncate(int64_t newSize) final;
 
   void flush() final;
 
   void setAttributes(
-      const std::unordered_map<std::string, std::string>& attributes) final;
+      const std::unordered_map<std::string, std::string> &attributes) final;
 
   std::unordered_map<std::string, std::string> getAttributes() const final;
 
   void close() final;
 
-  uint64_t size() const final {
-    return size_;
-  }
+  uint64_t size() const final { return size_; }
 
-  const std::string getName() const final {
-    return path_;
-  }
+  const std::string getName() const final { return path_; }
 
- private:
+private:
   int32_t fd_{-1};
   std::string path_;
   uint64_t size_{0};

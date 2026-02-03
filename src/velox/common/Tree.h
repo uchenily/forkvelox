@@ -39,32 +39,28 @@ struct DrawableTree {
   std::size_t childrenLeftOffset;
   std::vector<DrawableTreePtr> children;
 
-  static DrawableTreePtr fromTree(const std::shared_ptr<Tree>& root) {
+  static DrawableTreePtr fromTree(const std::shared_ptr<Tree> &root) {
     std::vector<DrawableTreePtr> drawableChildren;
     drawableChildren.reserve(root->children.size());
-    for (const auto& child : root->children) {
+    for (const auto &child : root->children) {
       drawableChildren.emplace_back(fromTree(child));
     }
 
     std::size_t childrenWidth = 0;
     if (!drawableChildren.empty()) {
       auto sumChildrenOnly = std::accumulate(
-          drawableChildren.begin(),
-          drawableChildren.end(),
-          std::size_t{0},
-          [](std::size_t sum, const DrawableTreePtr& child) {
+          drawableChildren.begin(), drawableChildren.end(), std::size_t{0},
+          [](std::size_t sum, const DrawableTreePtr &child) {
             return sum + child->overallWidth;
           });
-      childrenWidth =
-          sumChildrenOnly + (drawableChildren.size() - 1) * kMargin;
+      childrenWidth = sumChildrenOnly + (drawableChildren.size() - 1) * kMargin;
     }
 
     std::size_t childrenHeight = 0;
     if (!drawableChildren.empty()) {
       auto highest = *std::max_element(
-          drawableChildren.begin(),
-          drawableChildren.end(),
-          [](const DrawableTreePtr& a, const DrawableTreePtr& b) {
+          drawableChildren.begin(), drawableChildren.end(),
+          [](const DrawableTreePtr &a, const DrawableTreePtr &b) {
             return a->overallHeight < b->overallHeight;
           });
       childrenHeight = highest->overallHeight;
@@ -84,32 +80,26 @@ struct DrawableTree {
     if (!drawableChildren.empty()) {
       auto firstChildCenter = drawableChildren.front()->centerX;
       auto lastChildCenter = drawableChildren.back()->centerX;
-      auto connectionBarWidth = childrenWidth - (firstChildCenter - 1) -
+      auto connectionBarWidth =
+          childrenWidth - (firstChildCenter - 1) -
           (drawableChildren.back()->overallWidth - lastChildCenter);
       auto centerOfChildren =
           firstChildCenter + (connectionBarWidth + 1) / 2 - 1;
       centerX = std::max(centerOfCurrentBox, centerOfChildren);
-      childrenLeftOffset = std::max(
-          0,
-          static_cast<int>(centerOfCurrentBox) -
-              static_cast<int>(centerOfChildren));
+      childrenLeftOffset = std::max(0, static_cast<int>(centerOfCurrentBox) -
+                                           static_cast<int>(centerOfChildren));
       auto currentNodeRightBuffer = width / 2;
       auto lastChildRightBuffer =
           drawableChildren.back()->overallWidth - lastChildCenter;
       auto connectionBarRightBuffer = connectionBarWidth / 2;
-      overallWidth = std::max(centerX + currentNodeRightBuffer + 1,
-          centerX + connectionBarRightBuffer + lastChildRightBuffer);
+      overallWidth =
+          std::max(centerX + currentNodeRightBuffer + 1,
+                   centerX + connectionBarRightBuffer + lastChildRightBuffer);
     }
 
     return std::make_shared<DrawableTree>(DrawableTree{
-        width,
-        height,
-        centerX,
-        overallWidth,
-        overallHeight,
-        root->label,
-        childrenLeftOffset,
-        std::move(drawableChildren)});
+        width, height, centerX, overallWidth, overallHeight, root->label,
+        childrenLeftOffset, std::move(drawableChildren)});
   }
 
   std::string render(std::string_view title = "") {
@@ -121,14 +111,14 @@ struct DrawableTree {
     if (!title.empty()) {
       out << "==== " << title << " ====\n";
     }
-    for (const auto& row : canvas) {
+    for (const auto &row : canvas) {
       out << std::string_view(row.data(), row.size()) << '\n';
     }
     return out.str();
   }
 
 private:
-  void renderInternal(Canvas* canvas, const Point& pos) {
+  void renderInternal(Canvas *canvas, const Point &pos) {
     std::size_t left = pos.x + centerX - (width + 1) / 2;
 
     std::size_t labelStart = left + (width - label.size()) / 2 + 1;
@@ -143,7 +133,7 @@ private:
     renderChildren(canvas, pos);
   }
 
-  void renderChildren(Canvas* canvas, const Point& pos) {
+  void renderChildren(Canvas *canvas, const Point &pos) {
     if (children.empty()) {
       return;
     }
@@ -153,13 +143,13 @@ private:
     Point childPos = {pos.x + childrenLeftOffset, childOriginY};
 
     for (std::size_t childId = 0; childId < children.size(); ++childId) {
-      const auto& child = children[childId];
+      const auto &child = children[childId];
       child->renderInternal(canvas, childPos);
 
       if (childId != children.size() - 1) {
         std::size_t start = childPos.x + child->centerX + 1;
         std::size_t end = childPos.x + child->overallWidth + kMargin +
-            children[childId + 1]->centerX;
+                          children[childId + 1]->centerX;
 
         for (std::size_t x = start; x < end; ++x) {
           if (x != pos.x + centerX) {

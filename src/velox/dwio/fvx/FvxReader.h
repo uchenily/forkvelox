@@ -18,12 +18,12 @@ class FvxRowReader;
 
 class FvxReader {
 public:
-  FvxReader(std::shared_ptr<ReadFile> file, memory::MemoryPool* pool);
+  FvxReader(std::shared_ptr<ReadFile> file, memory::MemoryPool *pool);
 
-  std::unique_ptr<FvxRowReader> createRowReader(
-      const dwio::common::RowReaderOptions& options) const;
+  std::unique_ptr<FvxRowReader>
+  createRowReader(const dwio::common::RowReaderOptions &options) const;
 
-  const RowTypePtr& rowType() const { return rowType_; }
+  const RowTypePtr &rowType() const { return rowType_; }
 
 private:
   struct ColumnStats {
@@ -49,7 +49,7 @@ private:
   };
 
   std::shared_ptr<ReadFile> file_;
-  memory::MemoryPool* pool_;
+  memory::MemoryPool *pool_;
   std::string data_;
   RowTypePtr rowType_;
   std::vector<RowGroup> rowGroups_;
@@ -63,11 +63,9 @@ private:
 
 class FvxRowReader {
 public:
-  FvxRowReader(
-      const FvxReader* reader,
-      dwio::common::RowReaderOptions options);
+  FvxRowReader(const FvxReader *reader, dwio::common::RowReaderOptions options);
 
-  bool next(size_t batchSize, RowVectorPtr& out);
+  bool next(size_t batchSize, RowVectorPtr &out);
 
 private:
   struct ColumnBuffer {
@@ -82,7 +80,7 @@ private:
     std::vector<ColumnBuffer> columns;
   };
 
-  const FvxReader* reader_;
+  const FvxReader *reader_;
   dwio::common::RowReaderOptions options_;
   RowTypePtr outputType_;
   std::vector<size_t> projectedIndices_;
@@ -91,20 +89,15 @@ private:
   std::optional<RowGroupCache> currentGroup_;
 
   bool loadNextMatchingRowGroup();
-  bool rowGroupMatches(const FvxReader::RowGroup& rowGroup) const;
-  bool columnMayMatch(
-      const FvxReader::ColumnStats& stats,
-      dwio::common::CompareOp op,
-      const Variant& value) const;
+  bool rowGroupMatches(const FvxReader::RowGroup &rowGroup) const;
+  bool columnMayMatch(const FvxReader::ColumnStats &stats,
+                      dwio::common::CompareOp op, const Variant &value) const;
 
-  RowVectorPtr buildRowVectorFromCache(
-      const RowGroupCache& cache,
-      vector_size_t offset,
-      vector_size_t count) const;
-  ColumnBuffer decodeColumn(
-      const FvxReader::ColumnChunk& chunk,
-      TypeKind kind,
-      uint32_t rowCount) const;
+  RowVectorPtr buildRowVectorFromCache(const RowGroupCache &cache,
+                                       vector_size_t offset,
+                                       vector_size_t count) const;
+  ColumnBuffer decodeColumn(const FvxReader::ColumnChunk &chunk, TypeKind kind,
+                            uint32_t rowCount) const;
   void buildProjection();
 };
 

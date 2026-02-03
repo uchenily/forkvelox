@@ -11,7 +11,7 @@ public:
   explicit CsvRowReaderAdapter(std::unique_ptr<CsvRowReader> reader)
       : reader_(std::move(reader)) {}
 
-  bool next(size_t batchSize, VectorPtr& out) override {
+  bool next(size_t batchSize, VectorPtr &out) override {
     RowVectorPtr batch;
     if (!reader_->next(batchSize, batch)) {
       return false;
@@ -29,8 +29,8 @@ public:
   explicit CsvReaderAdapter(std::unique_ptr<CsvReader> reader)
       : reader_(std::move(reader)) {}
 
-  std::unique_ptr<dwio::common::RowReader> createRowReader(
-      const dwio::common::RowReaderOptions& options) override {
+  std::unique_ptr<dwio::common::RowReader>
+  createRowReader(const dwio::common::RowReaderOptions &options) override {
     return std::make_unique<CsvRowReaderAdapter>(reader_->createRowReader());
   }
 
@@ -40,23 +40,21 @@ private:
 
 class CsvReaderFactory : public dwio::common::ReaderFactory {
 public:
-  std::unique_ptr<dwio::common::Reader> createReader(
-      std::unique_ptr<dwio::common::BufferedInput> input,
-      const dwio::common::ReaderOptions& options) override {
+  std::unique_ptr<dwio::common::Reader>
+  createReader(std::unique_ptr<dwio::common::BufferedInput> input,
+               const dwio::common::ReaderOptions &options) override {
     CsvReadOptions csvOptions;
-    auto reader = std::make_unique<CsvReader>(
-        input->file(), options.memoryPool(), csvOptions);
-    return std::make_unique<CsvReaderAdapter>(
-        std::move(reader));
+    auto reader = std::make_unique<CsvReader>(input->file(),
+                                              options.memoryPool(), csvOptions);
+    return std::make_unique<CsvReaderAdapter>(std::move(reader));
   }
 };
 
 } // namespace
 
 void registerCsvReaderFactory() {
-  dwio::common::registerReaderFactory(
-      dwio::common::FileFormat::CSV,
-      std::make_unique<CsvReaderFactory>());
+  dwio::common::registerReaderFactory(dwio::common::FileFormat::CSV,
+                                      std::make_unique<CsvReaderFactory>());
 }
 
 } // namespace facebook::velox::dwio::csv

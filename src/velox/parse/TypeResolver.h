@@ -1,5 +1,5 @@
 #pragma once
 namespace facebook::velox::parse {
-    // defined in ExpressionsParser.h but demo might include TypeResolver.h
-    inline void registerTypeResolver();
-}
+// defined in ExpressionsParser.h but demo might include TypeResolver.h
+inline void registerTypeResolver();
+} // namespace facebook::velox::parse

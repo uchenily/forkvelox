@@ -4,7 +4,8 @@
 
 namespace facebook::velox::dwio::common {
 
-ReaderFactory* getReaderFactory(FileFormat format);
-void registerReaderFactory(FileFormat format, std::unique_ptr<ReaderFactory> factory);
+ReaderFactory *getReaderFactory(FileFormat format);
+void registerReaderFactory(FileFormat format,
+                           std::unique_ptr<ReaderFactory> factory);
 
 } // namespace facebook::velox::dwio::common

@@ -1,5 +1,5 @@
 #pragma once
 // Stub
 namespace facebook::velox::parse {
-    class Expressions {};
-}
+class Expressions {};
+} // namespace facebook::velox::parse

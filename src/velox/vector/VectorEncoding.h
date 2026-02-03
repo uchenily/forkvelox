@@ -1,8 +1,8 @@
 #pragma once
 
-#include <string>
 #include <iostream>
 #include <sstream>
+#include <string>
 
 namespace facebook::velox {
 
@@ -21,37 +21,36 @@ enum class Simple {
   FUNCTION
 };
 
-inline std::ostream& operator<<(
-    std::ostream& out,
-    const VectorEncoding::Simple& type) {
+inline std::ostream &operator<<(std::ostream &out,
+                                const VectorEncoding::Simple &type) {
   switch (type) {
-    case VectorEncoding::Simple::BIASED:
-      return out << "BIASED";
-    case VectorEncoding::Simple::CONSTANT:
-      return out << "CONSTANT";
-    case VectorEncoding::Simple::DICTIONARY:
-      return out << "DICTIONARY";
-    case VectorEncoding::Simple::FLAT:
-      return out << "FLAT";
-    case VectorEncoding::Simple::SEQUENCE:
-      return out << "SEQUENCE";
-    case VectorEncoding::Simple::ROW:
-      return out << "ROW";
-    case VectorEncoding::Simple::MAP:
-      return out << "MAP";
-    case VectorEncoding::Simple::FLAT_MAP:
-      return out << "FLAT_MAP";
-    case VectorEncoding::Simple::ARRAY:
-      return out << "ARRAY";
-    case VectorEncoding::Simple::LAZY:
-      return out << "LAZY";
-    case VectorEncoding::Simple::FUNCTION:
-      return out << "FUNCTION";
+  case VectorEncoding::Simple::BIASED:
+    return out << "BIASED";
+  case VectorEncoding::Simple::CONSTANT:
+    return out << "CONSTANT";
+  case VectorEncoding::Simple::DICTIONARY:
+    return out << "DICTIONARY";
+  case VectorEncoding::Simple::FLAT:
+    return out << "FLAT";
+  case VectorEncoding::Simple::SEQUENCE:
+    return out << "SEQUENCE";
+  case VectorEncoding::Simple::ROW:
+    return out << "ROW";
+  case VectorEncoding::Simple::MAP:
+    return out << "MAP";
+  case VectorEncoding::Simple::FLAT_MAP:
+    return out << "FLAT_MAP";
+  case VectorEncoding::Simple::ARRAY:
+    return out << "ARRAY";
+  case VectorEncoding::Simple::LAZY:
+    return out << "LAZY";
+  case VectorEncoding::Simple::FUNCTION:
+    return out << "FUNCTION";
   }
   return out;
 }
 
-inline std::string mapSimpleToName(const VectorEncoding::Simple& simple) {
+inline std::string mapSimpleToName(const VectorEncoding::Simple &simple) {
   std::stringstream ss;
   ss << simple;
   return ss.str();

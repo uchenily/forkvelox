@@ -9,35 +9,35 @@ namespace facebook::velox {
 namespace {
 std::atomic<LogLevel> gMinLevel{LogLevel::kInfo};
 std::mutex gLogMutex;
-std::ostream* gOut = &std::cerr;
+std::ostream *gOut = &std::cerr;
 bool gUseColor = false;
 bool gIncludeTimestamp = true;
 bool gAutoFlush = true;
 
-const char* levelToString(LogLevel level) {
+const char *levelToString(LogLevel level) {
   switch (level) {
-    case LogLevel::kDebug:
-      return "DEBUG";
-    case LogLevel::kInfo:
-      return "INFO";
-    case LogLevel::kWarn:
-      return "WARN";
-    case LogLevel::kError:
-      return "ERROR";
+  case LogLevel::kDebug:
+    return "DEBUG";
+  case LogLevel::kInfo:
+    return "INFO";
+  case LogLevel::kWarn:
+    return "WARN";
+  case LogLevel::kError:
+    return "ERROR";
   }
   return "UNKNOWN";
 }
 
-const char* levelColor(LogLevel level) {
+const char *levelColor(LogLevel level) {
   switch (level) {
-    case LogLevel::kDebug:
-      return "\033[36m";
-    case LogLevel::kInfo:
-      return "\033[32m";
-    case LogLevel::kWarn:
-      return "\033[33m";
-    case LogLevel::kError:
-      return "\033[31m";
+  case LogLevel::kDebug:
+    return "\033[36m";
+  case LogLevel::kInfo:
+    return "\033[32m";
+  case LogLevel::kWarn:
+    return "\033[33m";
+  case LogLevel::kError:
+    return "\033[31m";
   }
   return "";
 }
@@ -55,15 +55,14 @@ void Log::setLevel(LogLevel level) {
   gMinLevel.store(level, std::memory_order_relaxed);
 }
 
-LogLevel Log::level() {
-  return gMinLevel.load(std::memory_order_relaxed);
-}
+LogLevel Log::level() { return gMinLevel.load(std::memory_order_relaxed); }
 
 bool Log::shouldLog(LogLevel level) {
-  return static_cast<int>(level) >= static_cast<int>(gMinLevel.load(std::memory_order_relaxed));
+  return static_cast<int>(level) >=
+         static_cast<int>(gMinLevel.load(std::memory_order_relaxed));
 }
 
-void Log::setOutput(std::ostream* out) {
+void Log::setOutput(std::ostream *out) {
   std::lock_guard<std::mutex> guard(gLogMutex);
   gOut = out ? out : &std::cerr;
 }
@@ -83,22 +82,18 @@ void Log::setAutoFlush(bool enable) {
   gAutoFlush = enable;
 }
 
-void Log::log(
-    LogLevel level,
-    std::source_location location,
-    std::string_view message) {
+void Log::log(LogLevel level, std::source_location location,
+              std::string_view message) {
   if (!shouldLog(level)) {
     return;
   }
   logImpl(level, location, std::string(message));
 }
 
-void Log::logImpl(
-    LogLevel level,
-    std::source_location location,
-    std::string message) {
+void Log::logImpl(LogLevel level, std::source_location location,
+                  std::string message) {
   std::string timestamp;
-  std::ostream* out = nullptr;
+  std::ostream *out = nullptr;
   bool useColor = false;
   bool includeTimestamp = true;
   bool autoFlush = true;
@@ -120,19 +115,13 @@ void Log::logImpl(
     timePrefix = std::format("[{}] ", timestamp);
   }
 
-  const char* color = useColor ? levelColor(level) : "";
-  const char* reset = useColor ? "\033[0m" : "";
+  const char *color = useColor ? levelColor(level) : "";
+  const char *reset = useColor ? "\033[0m" : "";
 
-  std::string line = std::format(
-      "{}{}[{}] {}:{} {} - {}{}",
-      color,
-      timePrefix,
-      levelToString(level),
-      location.file_name(),
-      location.line(),
-      location.function_name(),
-      message,
-      reset);
+  std::string line =
+      std::format("{}{}[{}] {}:{} {} - {}{}", color, timePrefix,
+                  levelToString(level), location.file_name(), location.line(),
+                  location.function_name(), message, reset);
 
   {
     std::lock_guard<std::mutex> guard(gLogMutex);

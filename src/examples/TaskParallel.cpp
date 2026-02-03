@@ -21,7 +21,7 @@ using namespace facebook::velox::exec;
 using namespace facebook::velox::exec::test;
 
 // Demo: run a single pipeline (Values -> Filter) with multiple Drivers.
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   folly::init::Init init{&argc, &argv, false};
 
   memory::initializeMemoryManager(memory::MemoryManager::Options{});
@@ -41,29 +41,25 @@ int main(int argc, char** argv) {
   for (int batch = 0; batch < numBatches; ++batch) {
     auto buffer =
         AlignedBuffer::allocate(batchSize * sizeof(int64_t), pool.get());
-    auto* rawValues = buffer->asMutable<int64_t>();
+    auto *rawValues = buffer->asMutable<int64_t>();
     std::iota(rawValues, rawValues + batchSize, batch * batchSize);
     std::shuffle(rawValues, rawValues + batchSize, rng);
 
     auto vector = std::make_shared<FlatVector<int64_t>>(
         pool.get(), BIGINT(), nullptr, batchSize, buffer);
-    batches.push_back(std::make_shared<RowVector>(
-        pool.get(), rowType, nullptr, batchSize, std::vector<VectorPtr>{vector}));
+    batches.push_back(
+        std::make_shared<RowVector>(pool.get(), rowType, nullptr, batchSize,
+                                    std::vector<VectorPtr>{vector}));
   }
 
   // only one pipeline
-  auto builder = PlanBuilder()
-                     .values(batches)
-                     .filter("my_col % 2 == 0");
+  auto builder = PlanBuilder().values(batches).filter("my_col % 2 == 0");
   builder.printPlanTree("TaskParallel Plan");
   auto plan = builder.planNode();
   auto queryCtx = core::QueryCtx::create();
 
-  auto task = Task::create(
-      "parallel_values_task",
-      plan,
-      queryCtx,
-      Task::ExecutionMode::kParallel);
+  auto task = Task::create("parallel_values_task", plan, queryCtx,
+                           Task::ExecutionMode::kParallel);
   task->setMaxDrivers(4);
 
   auto results = task->run();
@@ -71,7 +67,7 @@ int main(int argc, char** argv) {
             << std::endl;
 
   std::vector<std::string> actualRows;
-  for (const auto& batch : results) {
+  for (const auto &batch : results) {
     if (!batch) {
       continue;
     }

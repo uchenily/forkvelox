@@ -16,23 +16,25 @@
 using namespace facebook::velox;
 using namespace facebook::velox::exec::test;
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   memory::initializeMemoryManager(memory::MemoryManager::Options{});
   auto pool = memory::defaultMemoryPool();
 
   auto inputRowType = ROW({"my_col"}, {BIGINT()});
   const vector_size_t vectorSize = 10;
 
-  auto buffer = AlignedBuffer::allocate(vectorSize * sizeof(int64_t), pool.get());
-  auto* rawValues = buffer->asMutable<int64_t>();
+  auto buffer =
+      AlignedBuffer::allocate(vectorSize * sizeof(int64_t), pool.get());
+  auto *rawValues = buffer->asMutable<int64_t>();
   std::iota(rawValues, rawValues + vectorSize, 0);
   std::mt19937 rng(std::random_device{}());
   std::shuffle(rawValues, rawValues + vectorSize, rng);
 
   auto vector = std::make_shared<FlatVector<int64_t>>(
       pool.get(), BIGINT(), nullptr, vectorSize, buffer);
-  auto rowVector = std::make_shared<RowVector>(
-      pool.get(), inputRowType, nullptr, vectorSize, std::vector<VectorPtr>{vector});
+  auto rowVector =
+      std::make_shared<RowVector>(pool.get(), inputRowType, nullptr, vectorSize,
+                                  std::vector<VectorPtr>{vector});
 
   std::cout << "Input vector generated:" << std::endl;
   for (vector_size_t i = 0; i < rowVector->size(); ++i) {

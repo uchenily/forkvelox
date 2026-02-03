@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "folly/executors/CPUThreadPoolExecutor.h"
 #include "velox/buffer/Buffer.h"
 #include "velox/common/base/Exceptions.h"
 #include "velox/dwio/common/RowVectorFile.h"
@@ -17,7 +18,6 @@
 #include "velox/exec/Operator.h"
 #include "velox/exec/Split.h"
 #include "velox/vector/FlatVector.h"
-#include "folly/executors/CPUThreadPoolExecutor.h"
 
 namespace facebook::velox::exec {
 namespace {
@@ -40,11 +40,8 @@ private:
   std::atomic<size_t> next_{0};
 };
 
-RowVectorPtr sliceRowVector(
-    const RowVector& data,
-    vector_size_t offset,
-    vector_size_t length,
-    memory::MemoryPool* pool) {
+RowVectorPtr sliceRowVector(const RowVector &data, vector_size_t offset,
+                            vector_size_t length, memory::MemoryPool *pool) {
   auto rowType = asRowType(data.type());
   std::vector<VectorPtr> children;
   children.reserve(rowType->size());
@@ -54,24 +51,15 @@ RowVectorPtr sliceRowVector(
     VectorPtr output;
     if (type->kind() == TypeKind::BIGINT) {
       output = std::make_shared<FlatVector<int64_t>>(
-          pool,
-          type,
-          nullptr,
-          length,
+          pool, type, nullptr, length,
           AlignedBuffer::allocate(length * sizeof(int64_t), pool));
     } else if (type->kind() == TypeKind::INTEGER) {
       output = std::make_shared<FlatVector<int32_t>>(
-          pool,
-          type,
-          nullptr,
-          length,
+          pool, type, nullptr, length,
           AlignedBuffer::allocate(length * sizeof(int32_t), pool));
     } else if (type->kind() == TypeKind::VARCHAR) {
       output = std::make_shared<FlatVector<StringView>>(
-          pool,
-          type,
-          nullptr,
-          length,
+          pool, type, nullptr, length,
           AlignedBuffer::allocate(length * sizeof(StringView), pool));
     } else {
       VELOX_FAIL("Unsupported type for file scan slicing");
@@ -82,21 +70,16 @@ RowVectorPtr sliceRowVector(
     children.push_back(output);
   }
 
-  return std::make_shared<RowVector>(
-      pool, rowType, nullptr, length, std::move(children));
+  return std::make_shared<RowVector>(pool, rowType, nullptr, length,
+                                     std::move(children));
 }
 
 class FileScanSourceState : public SourceState {
 public:
-  FileScanSourceState(
-      std::string path,
-      RowTypePtr expectedType,
-      memory::MemoryPool* pool,
-      vector_size_t batchSize)
-      : path_(std::move(path)),
-        expectedType_(std::move(expectedType)),
-        pool_(pool),
-        batchSize_(batchSize) {}
+  FileScanSourceState(std::string path, RowTypePtr expectedType,
+                      memory::MemoryPool *pool, vector_size_t batchSize)
+      : path_(std::move(path)), expectedType_(std::move(expectedType)),
+        pool_(pool), batchSize_(batchSize) {}
 
   RowVectorPtr next() override {
     std::call_once(loadOnce_, [&]() { load(); });
@@ -122,15 +105,15 @@ private:
     }
     for (vector_size_t offset = 0; offset < data_->size();
          offset += batchSize_) {
-      auto length =
-          std::min(batchSize_, static_cast<vector_size_t>(data_->size() - offset));
+      auto length = std::min(
+          batchSize_, static_cast<vector_size_t>(data_->size() - offset));
       batches_.push_back(sliceRowVector(*data_, offset, length, pool_));
     }
   }
 
   std::string path_;
   RowTypePtr expectedType_;
-  memory::MemoryPool* pool_;
+  memory::MemoryPool *pool_;
   vector_size_t batchSize_;
   RowVectorPtr data_;
   std::vector<RowVectorPtr> batches_;
@@ -140,15 +123,10 @@ private:
 
 class FileSplitSourceState : public SourceState {
 public:
-  FileSplitSourceState(
-      std::vector<exec::Split> splits,
-      RowTypePtr expectedType,
-      memory::MemoryPool* pool,
-      vector_size_t batchSize)
-      : splits_(std::move(splits)),
-        expectedType_(std::move(expectedType)),
-        pool_(pool),
-        batchSize_(batchSize) {}
+  FileSplitSourceState(std::vector<exec::Split> splits, RowTypePtr expectedType,
+                       memory::MemoryPool *pool, vector_size_t batchSize)
+      : splits_(std::move(splits)), expectedType_(std::move(expectedType)),
+        pool_(pool), batchSize_(batchSize) {}
 
   RowVectorPtr next() override {
     std::call_once(loadOnce_, [&]() { load(); });
@@ -161,7 +139,7 @@ public:
 
 private:
   void load() {
-    for (const auto& split : splits_) {
+    for (const auto &split : splits_) {
       if (split.path().empty()) {
         continue;
       }
@@ -187,7 +165,7 @@ private:
 
   std::vector<exec::Split> splits_;
   RowTypePtr expectedType_;
-  memory::MemoryPool* pool_;
+  memory::MemoryPool *pool_;
   vector_size_t batchSize_;
   std::vector<RowVectorPtr> batches_;
   std::atomic<size_t> next_{0};
@@ -198,10 +176,10 @@ using SourceStateMap =
     std::unordered_map<core::PlanNodeId, std::shared_ptr<SourceState>>;
 
 void collectSourceStates(
-    const core::PlanNodePtr& node,
-    memory::MemoryPool* pool,
-    const std::unordered_map<core::PlanNodeId, std::vector<exec::Split>>& splits,
-    SourceStateMap& states) {
+    const core::PlanNodePtr &node, memory::MemoryPool *pool,
+    const std::unordered_map<core::PlanNodeId, std::vector<exec::Split>>
+        &splits,
+    SourceStateMap &states) {
   if (auto values = std::dynamic_pointer_cast<const core::ValuesNode>(node)) {
     states.emplace(values->id(),
                    std::make_shared<ValuesSourceState>(values->values()));
@@ -209,28 +187,24 @@ void collectSourceStates(
                  std::dynamic_pointer_cast<const core::FileScanNode>(node)) {
     auto splitIt = splits.find(fileScan->id());
     if (splitIt != splits.end() && !splitIt->second.empty()) {
-      states.emplace(
-          fileScan->id(),
-          std::make_shared<FileSplitSourceState>(
-              splitIt->second, fileScan->outputType(), pool, 1024));
+      states.emplace(fileScan->id(),
+                     std::make_shared<FileSplitSourceState>(
+                         splitIt->second, fileScan->outputType(), pool, 1024));
     } else {
-      states.emplace(
-          fileScan->id(),
-          std::make_shared<FileScanSourceState>(
-              fileScan->path(), fileScan->outputType(), pool, 1024));
+      states.emplace(fileScan->id(),
+                     std::make_shared<FileScanSourceState>(
+                         fileScan->path(), fileScan->outputType(), pool, 1024));
     }
   }
 
-  for (const auto& source : node->sources()) {
+  for (const auto &source : node->sources()) {
     collectSourceStates(source, pool, splits, states);
   }
 }
 
-void buildPipeline(
-    core::PlanNodePtr node,
-    std::vector<std::shared_ptr<Operator>>& ops,
-    core::ExecCtx* ctx,
-    const SourceStateMap& states) {
+void buildPipeline(core::PlanNodePtr node,
+                   std::vector<std::shared_ptr<Operator>> &ops,
+                   core::ExecCtx *ctx, const SourceStateMap &states) {
   if (auto values = std::dynamic_pointer_cast<const core::ValuesNode>(node)) {
     auto it = states.find(values->id());
     ops.push_back(std::make_shared<ValuesOperator>(
@@ -273,30 +247,23 @@ void buildPipeline(
 
 } // namespace
 
-std::shared_ptr<Task> Task::create(
-    std::string taskId,
-    core::PlanNodePtr plan,
-    std::shared_ptr<core::QueryCtx> queryCtx,
-    ExecutionMode mode) {
+std::shared_ptr<Task> Task::create(std::string taskId, core::PlanNodePtr plan,
+                                   std::shared_ptr<core::QueryCtx> queryCtx,
+                                   ExecutionMode mode) {
   return std::shared_ptr<Task>(
       new Task(std::move(taskId), std::move(plan), std::move(queryCtx), mode));
 }
 
-Task::Task(
-    std::string taskId,
-    core::PlanNodePtr plan,
-    std::shared_ptr<core::QueryCtx> queryCtx,
-    ExecutionMode mode)
-    : taskId_(std::move(taskId)),
-      plan_(std::move(plan)),
-      queryCtx_(std::move(queryCtx)),
-      mode_(mode) {}
+Task::Task(std::string taskId, core::PlanNodePtr plan,
+           std::shared_ptr<core::QueryCtx> queryCtx, ExecutionMode mode)
+    : taskId_(std::move(taskId)), plan_(std::move(plan)),
+      queryCtx_(std::move(queryCtx)), mode_(mode) {}
 
-void Task::addSplit(const core::PlanNodeId& id, exec::Split split) {
+void Task::addSplit(const core::PlanNodeId &id, exec::Split split) {
   splits_[id].push_back(std::move(split));
 }
 
-void Task::noMoreSplits(const core::PlanNodeId& id) {
+void Task::noMoreSplits(const core::PlanNodeId &id) {
   noMoreSplits_.insert(id);
 }
 
@@ -325,26 +292,15 @@ std::string Task::errorMessage() const {
   return errorMessage_;
 }
 
-bool Task::shouldStop() const {
-  return isCancelled() || hasError();
-}
+bool Task::shouldStop() const { return isCancelled() || hasError(); }
 
-void Task::enqueue(
-    folly::Executor* executor,
-    std::shared_ptr<Driver> driver,
-    std::shared_ptr<core::ExecCtx> execCtx,
-    bool outputPipeline,
-    std::vector<RowVectorPtr>* results,
-    std::mutex* resultsMutex,
-    std::shared_ptr<std::latch> done) {
-  executor->add([this,
-                 executor,
-                 driver = std::move(driver),
-                 execCtx = std::move(execCtx),
-                 outputPipeline,
-                 results,
-                 resultsMutex,
-                 done = std::move(done)]() mutable {
+void Task::enqueue(folly::Executor *executor, std::shared_ptr<Driver> driver,
+                   std::shared_ptr<core::ExecCtx> execCtx, bool outputPipeline,
+                   std::vector<RowVectorPtr> *results, std::mutex *resultsMutex,
+                   std::shared_ptr<std::latch> done) {
+  executor->add([this, executor, driver = std::move(driver),
+                 execCtx = std::move(execCtx), outputPipeline, results,
+                 resultsMutex, done = std::move(done)]() mutable {
     if (shouldStop()) {
       done->count_down();
       return;
@@ -353,14 +309,14 @@ void Task::enqueue(
     const auto start = std::chrono::steady_clock::now();
     driver->setYieldCheck([start]() {
       return std::chrono::steady_clock::now() - start >
-          std::chrono::milliseconds(2);
+             std::chrono::milliseconds(2);
     });
 
     std::vector<RowVectorPtr> batches;
     BlockingReason reason = BlockingReason::kNotBlocked;
     try {
       reason = driver->run(batches);
-    } catch (const std::exception& e) {
+    } catch (const std::exception &e) {
       setError(e.what());
       reason = BlockingReason::kTerminated;
     } catch (...) {
@@ -382,14 +338,8 @@ void Task::enqueue(
         reason == BlockingReason::kWaitForExchange ||
         reason == BlockingReason::kWaitForJoin) {
       if (!shouldStop()) {
-        enqueue(
-            executor,
-            std::move(driver),
-            std::move(execCtx),
-            outputPipeline,
-            results,
-            resultsMutex,
-            std::move(done));
+        enqueue(executor, std::move(driver), std::move(execCtx), outputPipeline,
+                results, resultsMutex, std::move(done));
         return;
       }
     }
@@ -410,11 +360,9 @@ std::vector<RowVectorPtr> Task::run() {
       std::unordered_map<std::string, std::shared_ptr<LocalExchangeQueue>>;
 
   auto makeOperatorForNode =
-      [&](const core::PlanNodePtr& node,
-          core::ExecCtx* ctx,
-          const SourceStateMap& states,
-          const HashJoinBridgeMap& bridges,
-          const ExchangeQueueMap& exchanges) -> std::shared_ptr<Operator> {
+      [&](const core::PlanNodePtr &node, core::ExecCtx *ctx,
+          const SourceStateMap &states, const HashJoinBridgeMap &bridges,
+          const ExchangeQueueMap &exchanges) -> std::shared_ptr<Operator> {
     if (auto values = std::dynamic_pointer_cast<const core::ValuesNode>(node)) {
       auto it = states.find(values->id());
       return std::static_pointer_cast<Operator>(
@@ -475,12 +423,12 @@ std::vector<RowVectorPtr> Task::run() {
   };
 
   HashJoinBridgeMap bridges;
-  std::function<void(const core::PlanNodePtr&)> collectJoins =
-      [&](const core::PlanNodePtr& node) {
+  std::function<void(const core::PlanNodePtr &)> collectJoins =
+      [&](const core::PlanNodePtr &node) {
         if (!node) {
           return;
         }
-        for (const auto& source : node->sources()) {
+        for (const auto &source : node->sources()) {
           collectJoins(source);
         }
         if (auto join =
@@ -496,12 +444,12 @@ std::vector<RowVectorPtr> Task::run() {
   std::vector<std::unique_ptr<DriverFactory>> driverFactories;
   LocalPlanner::plan(plan_, &bridges, &driverFactories, maxDrivers_);
 
-  for (auto& factory : driverFactories) {
+  for (auto &factory : driverFactories) {
     if (!factory->planNodes.empty() &&
         factory->planNodes.back()->id() == plan_->id()) {
       factory->outputPipeline = true;
     }
-    for (const auto& node : factory->planNodes) {
+    for (const auto &node : factory->planNodes) {
       if (std::dynamic_pointer_cast<const core::HashJoinNode>(node)) {
         factory->probeJoinIds.insert(node->id());
       }
@@ -509,7 +457,7 @@ std::vector<RowVectorPtr> Task::run() {
   }
 
   std::cout << "[Task] Pipelines: " << driverFactories.size() << std::endl;
-  auto opNameForNode = [](const core::PlanNodePtr& node, bool isBuild) {
+  auto opNameForNode = [](const core::PlanNodePtr &node, bool isBuild) {
     if (std::dynamic_pointer_cast<const core::ValuesNode>(node)) {
       return std::string("Values");
     }
@@ -544,12 +492,13 @@ std::vector<RowVectorPtr> Task::run() {
   };
 
   for (size_t i = 0; i < driverFactories.size(); ++i) {
-    std::cout << "[Task] Pipeline " << i << " drivers=" << driverFactories[i]->numDrivers
+    std::cout << "[Task] Pipeline " << i
+              << " drivers=" << driverFactories[i]->numDrivers
               << (driverFactories[i]->outputPipeline ? " output" : "")
               << (driverFactories[i]->inputDriver ? " input" : "")
               << " operators: [";
     bool first = true;
-    for (const auto& node : driverFactories[i]->planNodes) {
+    for (const auto &node : driverFactories[i]->planNodes) {
       if (!first) {
         std::cout << " -> ";
       }
@@ -569,29 +518,27 @@ std::vector<RowVectorPtr> Task::run() {
   std::unordered_map<std::string, size_t> exchangeProducers;
   std::unordered_map<std::string, size_t> exchangeConsumers;
   for (size_t i = 0; i < driverFactories.size(); ++i) {
-    for (const auto& node : driverFactories[i]->planNodes) {
+    for (const auto &node : driverFactories[i]->planNodes) {
       if (auto localPartition =
               std::dynamic_pointer_cast<const core::LocalPartitionNode>(node)) {
         exchangeProducers.emplace(localPartition->exchangeId(), i);
-      } else if (
-          auto localMerge =
-              std::dynamic_pointer_cast<const core::LocalMergeNode>(node)) {
+      } else if (auto localMerge =
+                     std::dynamic_pointer_cast<const core::LocalMergeNode>(
+                         node)) {
         exchangeConsumers.emplace(localMerge->exchangeId(), i);
       }
     }
   }
 
   ExchangeQueueMap exchanges;
-  for (const auto& [exchangeId, pipelineId] : exchangeProducers) {
-    exchanges.emplace(
-        exchangeId,
-        std::make_shared<LocalExchangeQueue>(
-            driverFactories[pipelineId]->numDrivers));
+  for (const auto &[exchangeId, pipelineId] : exchangeProducers) {
+    exchanges.emplace(exchangeId, std::make_shared<LocalExchangeQueue>(
+                                      driverFactories[pipelineId]->numDrivers));
   }
 
   std::unordered_map<core::PlanNodeId, size_t> buildPipelines;
   for (size_t i = 0; i < driverFactories.size(); ++i) {
-    const auto& factory = driverFactories[i];
+    const auto &factory = driverFactories[i];
     if (factory->operatorSupplier &&
         std::dynamic_pointer_cast<const core::HashJoinNode>(
             factory->consumerNode)) {
@@ -602,14 +549,15 @@ std::vector<RowVectorPtr> Task::run() {
   std::vector<std::vector<size_t>> dependents(driverFactories.size());
   std::vector<size_t> indegree(driverFactories.size(), 0);
   for (size_t i = 0; i < driverFactories.size(); ++i) {
-    for (const auto& joinId : driverFactories[i]->probeJoinIds) {
+    for (const auto &joinId : driverFactories[i]->probeJoinIds) {
       auto it = buildPipelines.find(joinId);
-      VELOX_CHECK(it != buildPipelines.end(), "Missing build pipeline for join");
+      VELOX_CHECK(it != buildPipelines.end(),
+                  "Missing build pipeline for join");
       dependents[it->second].push_back(i);
       indegree[i]++;
     }
   }
-  for (const auto& [exchangeId, producerId] : exchangeProducers) {
+  for (const auto &[exchangeId, producerId] : exchangeProducers) {
     auto consumerIt = exchangeConsumers.find(exchangeId);
     if (consumerIt != exchangeConsumers.end()) {
       auto consumerId = consumerIt->second;
@@ -641,7 +589,7 @@ std::vector<RowVectorPtr> Task::run() {
   std::mutex resultsMutex;
 
   std::shared_ptr<folly::CPUThreadPoolExecutor> ownedExecutor;
-  folly::Executor* executor = queryCtx_->executor();
+  folly::Executor *executor = queryCtx_->executor();
   if (!executor) {
     const auto threads = std::max<size_t>(1, maxDrivers_);
     ownedExecutor = std::make_shared<folly::CPUThreadPoolExecutor>(threads);
@@ -659,7 +607,7 @@ std::vector<RowVectorPtr> Task::run() {
   while (!ready.empty()) {
     auto pipelineId = ready.back();
     ready.pop_back();
-    auto& factory = driverFactories[pipelineId];
+    auto &factory = driverFactories[pipelineId];
 
     auto done = std::make_shared<std::latch>(factory->numDrivers);
     for (size_t driverId = 0; driverId < factory->numDrivers; ++driverId) {
@@ -667,19 +615,14 @@ std::vector<RowVectorPtr> Task::run() {
           std::make_shared<core::ExecCtx>(queryCtx_->pool(), queryCtx_.get());
       auto driver = driverFactories[pipelineId]->createDriver(
           execCtx.get(),
-          [&](const core::PlanNodePtr& node, core::ExecCtx* ctx) {
-            return makeOperatorForNode(
-                node, ctx, sourceStates, bridges, exchanges);
+          [&](const core::PlanNodePtr &node, core::ExecCtx *ctx) {
+            return makeOperatorForNode(node, ctx, sourceStates, bridges,
+                                       exchanges);
           });
       driver->setCancelCheck([&]() { return shouldStop(); });
-      enqueue(
-          executor,
-          std::move(driver),
-          std::move(execCtx),
-          driverFactories[pipelineId]->outputPipeline,
-          &results,
-          &resultsMutex,
-          done);
+      enqueue(executor, std::move(driver), std::move(execCtx),
+              driverFactories[pipelineId]->outputPipeline, &results,
+              &resultsMutex, done);
     }
 
     done->wait();

@@ -7,7 +7,7 @@ namespace folly {
 
 class NamedThreadFactory {
 public:
-    NamedThreadFactory(const std::string& name) {}
+  NamedThreadFactory(const std::string &name) {}
 };
 
 } // namespace folly

@@ -16,11 +16,9 @@ void LocalExchangeQueue::enqueue(RowVectorPtr batch) {
   cv_.notify_one();
 }
 
-bool LocalExchangeQueue::dequeue(RowVectorPtr& out) {
+bool LocalExchangeQueue::dequeue(RowVectorPtr &out) {
   std::unique_lock<std::mutex> lock(mutex_);
-  cv_.wait(lock, [&]() {
-    return !queue_.empty() || producersRemaining_ == 0;
-  });
+  cv_.wait(lock, [&]() { return !queue_.empty() || producersRemaining_ == 0; });
   if (queue_.empty()) {
     return false;
   }

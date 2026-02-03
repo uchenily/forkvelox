@@ -13,10 +13,8 @@ struct FvxWriteOptions {
 
 class FvxWriter {
 public:
-  static void write(
-      const RowVector& data,
-      const std::string& path,
-      FvxWriteOptions options = {});
+  static void write(const RowVector &data, const std::string &path,
+                    FvxWriteOptions options = {});
 };
 
 } // namespace facebook::velox::dwio::fvx

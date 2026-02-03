@@ -17,7 +17,7 @@ using namespace facebook::velox;
 //   2) Optional types line: BIGINT,INTEGER,VARCHAR,...
 //   3) Data lines: value,value,...
 // Usage: ScanCsvDemo [csv_file_path]
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   folly::init::Init init{&argc, &argv, false};
 
   filesystems::registerLocalFileSystem();
@@ -32,11 +32,10 @@ int main(int argc, char** argv) {
 
   auto reader =
       dwio::common::getReaderFactory(dwio::common::FileFormat::CSV)
-          ->createReader(
-              std::make_unique<dwio::common::BufferedInput>(
-                  std::make_shared<LocalReadFile>(filePath),
-                  readerOpts.memoryPool()),
-              readerOpts);
+          ->createReader(std::make_unique<dwio::common::BufferedInput>(
+                             std::make_shared<LocalReadFile>(filePath),
+                             readerOpts.memoryPool()),
+                         readerOpts);
 
   VectorPtr batch;
   dwio::common::RowReaderOptions rowReaderOptions;

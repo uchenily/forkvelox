@@ -19,29 +19,27 @@ using namespace facebook::velox;
 using namespace facebook::velox::test;
 
 class FilterLambdaExample : public VectorTestBase {
- public:
+public:
   FilterLambdaExample() {
     functions::registerAllScalarFunctions();
     parse::registerTypeResolver();
   }
 
-  core::TypedExprPtr parseExpression(
-      const std::string& text,
-      const RowTypePtr& rowType) {
+  core::TypedExprPtr parseExpression(const std::string &text,
+                                     const RowTypePtr &rowType) {
     auto untyped = parse::DuckSqlExpressionsParser().parseExpr(text);
     return core::Expressions::inferTypes(untyped, rowType, execCtx_->pool());
   }
 
-  std::unique_ptr<exec::ExprSet> compileExpression(
-      const std::string& expr,
-      const RowTypePtr& rowType) {
+  std::unique_ptr<exec::ExprSet> compileExpression(const std::string &expr,
+                                                   const RowTypePtr &rowType) {
     std::vector<core::TypedExprPtr> expressions = {
         parseExpression(expr, rowType)};
-    return std::make_unique<exec::ExprSet>(
-        std::move(expressions), execCtx_.get());
+    return std::make_unique<exec::ExprSet>(std::move(expressions),
+                                           execCtx_.get());
   }
 
-  VectorPtr evaluate(exec::ExprSet& exprSet, const RowVectorPtr& input) {
+  VectorPtr evaluate(exec::ExprSet &exprSet, const RowVectorPtr &input) {
     exec::EvalCtx context(execCtx_.get(), &exprSet, input.get());
     SelectivityVector rows(input->size());
     std::vector<VectorPtr> result(1);
@@ -49,8 +47,8 @@ class FilterLambdaExample : public VectorTestBase {
     return result[0];
   }
 
-  std::shared_ptr<ArrayVector> makeArrayVector(
-      const std::vector<std::vector<int64_t>>& data) {
+  std::shared_ptr<ArrayVector>
+  makeArrayVector(const std::vector<std::vector<int64_t>> &data) {
     const auto rowCount = static_cast<vector_size_t>(data.size());
     std::vector<int32_t> offsets(rowCount, 0);
     std::vector<int32_t> sizes(rowCount, 0);
@@ -71,21 +69,14 @@ class FilterLambdaExample : public VectorTestBase {
         AlignedBuffer::allocate(rowCount * sizeof(int32_t), pool());
     auto sizesBuffer =
         AlignedBuffer::allocate(rowCount * sizeof(int32_t), pool());
-    std::memcpy(
-        offsetsBuffer->asMutable<uint8_t>(),
-        offsets.data(),
-        offsetsBuffer->size());
-    std::memcpy(
-        sizesBuffer->asMutable<uint8_t>(), sizes.data(), sizesBuffer->size());
+    std::memcpy(offsetsBuffer->asMutable<uint8_t>(), offsets.data(),
+                offsetsBuffer->size());
+    std::memcpy(sizesBuffer->asMutable<uint8_t>(), sizes.data(),
+                sizesBuffer->size());
 
-    return std::make_shared<ArrayVector>(
-        pool(),
-        ARRAY(BIGINT()),
-        nullptr,
-        rowCount,
-        offsetsBuffer,
-        sizesBuffer,
-        elementsVector);
+    return std::make_shared<ArrayVector>(pool(), ARRAY(BIGINT()), nullptr,
+                                         rowCount, offsetsBuffer, sizesBuffer,
+                                         elementsVector);
   }
 
   void run() {
@@ -98,8 +89,8 @@ class FilterLambdaExample : public VectorTestBase {
     std::cout << data->toString() << std::endl;
 
     // Lambda body must be wrapped in parentheses: x -> (x % 2 == 0).
-    auto evenExpr = compileExpression(
-        "filter(a, x -> (x % 2 == 0))", asRowType(data->type()));
+    auto evenExpr = compileExpression("filter(a, x -> (x % 2 == 0))",
+                                      asRowType(data->type()));
     auto evens = evaluate(*evenExpr, data);
 
     std::cout << std::endl << "> filter(a, x -> (x % 2 == 0)):" << std::endl;
@@ -114,7 +105,7 @@ class FilterLambdaExample : public VectorTestBase {
   }
 };
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   folly::init::Init init{&argc, &argv, false};
 
   FilterLambdaExample example;

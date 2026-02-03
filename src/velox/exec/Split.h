@@ -10,9 +10,10 @@ namespace facebook::velox::exec {
 class Split {
 public:
   explicit Split(std::string path) : path_(std::move(path)) {}
-  explicit Split(std::shared_ptr<connector::tpch::TpchConnectorSplit> /*split*/) {}
+  explicit Split(
+      std::shared_ptr<connector::tpch::TpchConnectorSplit> /*split*/) {}
 
-  const std::string& path() const { return path_; }
+  const std::string &path() const { return path_; }
 
 private:
   std::string path_;

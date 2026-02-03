@@ -5,21 +5,21 @@
 namespace facebook::velox::aggregate {
 
 namespace {
-std::unordered_map<std::string, std::shared_ptr<AggregateFunction>>& registry() {
+std::unordered_map<std::string, std::shared_ptr<AggregateFunction>> &
+registry() {
   static std::unordered_map<std::string, std::shared_ptr<AggregateFunction>> r;
   return r;
 }
-}
+} // namespace
 
-void registerAggregateFunction(
-    const std::string& name,
-    std::shared_ptr<AggregateFunction> func) {
+void registerAggregateFunction(const std::string &name,
+                               std::shared_ptr<AggregateFunction> func) {
   registry()[name] = std::move(func);
 }
 
-std::shared_ptr<AggregateFunction> getAggregateFunction(
-    const std::string& name) {
-  auto& r = registry();
+std::shared_ptr<AggregateFunction>
+getAggregateFunction(const std::string &name) {
+  auto &r = registry();
   auto it = r.find(name);
   if (it != r.end()) {
     return it->second;
@@ -27,4 +27,4 @@ std::shared_ptr<AggregateFunction> getAggregateFunction(
   return nullptr;
 }
 
-}
+} // namespace facebook::velox::aggregate

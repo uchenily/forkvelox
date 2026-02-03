@@ -22,15 +22,14 @@ class Task {
 public:
   enum class ExecutionMode { kSerial, kParallel };
 
-  static std::shared_ptr<Task> create(
-      std::string taskId,
-      core::PlanNodePtr plan,
-      std::shared_ptr<core::QueryCtx> queryCtx,
-      ExecutionMode mode = ExecutionMode::kSerial);
+  static std::shared_ptr<Task>
+  create(std::string taskId, core::PlanNodePtr plan,
+         std::shared_ptr<core::QueryCtx> queryCtx,
+         ExecutionMode mode = ExecutionMode::kSerial);
 
   void setMaxDrivers(size_t count) { maxDrivers_ = count; }
-  void addSplit(const core::PlanNodeId& id, exec::Split split);
-  void noMoreSplits(const core::PlanNodeId& id);
+  void addSplit(const core::PlanNodeId &id, exec::Split split);
+  void noMoreSplits(const core::PlanNodeId &id);
 
   void requestCancel();
   bool isCancelled() const;
@@ -42,20 +41,13 @@ public:
   std::vector<RowVectorPtr> run();
 
 private:
-  Task(
-      std::string taskId,
-      core::PlanNodePtr plan,
-      std::shared_ptr<core::QueryCtx> queryCtx,
-      ExecutionMode mode);
+  Task(std::string taskId, core::PlanNodePtr plan,
+       std::shared_ptr<core::QueryCtx> queryCtx, ExecutionMode mode);
 
-  void enqueue(
-      folly::Executor* executor,
-      std::shared_ptr<Driver> driver,
-      std::shared_ptr<core::ExecCtx> execCtx,
-      bool outputPipeline,
-      std::vector<RowVectorPtr>* results,
-      std::mutex* resultsMutex,
-      std::shared_ptr<std::latch> done);
+  void enqueue(folly::Executor *executor, std::shared_ptr<Driver> driver,
+               std::shared_ptr<core::ExecCtx> execCtx, bool outputPipeline,
+               std::vector<RowVectorPtr> *results, std::mutex *resultsMutex,
+               std::shared_ptr<std::latch> done);
 
   std::string taskId_;
   core::PlanNodePtr plan_;
