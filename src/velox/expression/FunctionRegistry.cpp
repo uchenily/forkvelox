@@ -10,10 +10,7 @@ std::unordered_map<std::string, std::shared_ptr<VectorFunction>> &registry() {
 }
 } // namespace
 
-void registerFunction(const std::string &name,
-                      std::shared_ptr<VectorFunction> func) {
-  registry()[name] = func;
-}
+void registerFunction(const std::string &name, std::shared_ptr<VectorFunction> func) { registry()[name] = func; }
 
 std::shared_ptr<VectorFunction> getVectorFunction(const std::string &name) {
   auto &r = registry();

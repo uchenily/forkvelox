@@ -6,14 +6,13 @@
 
 namespace facebook::velox {
 
-template <typename T> class FlatVector : public SimpleVector<T> {
+template <typename T>
+class FlatVector : public SimpleVector<T> {
 public:
-  FlatVector(memory::MemoryPool *pool, std::shared_ptr<const Type> type,
-             BufferPtr nulls, vector_size_t length, BufferPtr values,
-             std::vector<BufferPtr> stringBuffers = {})
-      : SimpleVector<T>(pool, type, VectorEncoding::Simple::FLAT,
-                        std::move(nulls), length),
-        values_(std::move(values)), stringBuffers_(std::move(stringBuffers)) {
+  FlatVector(memory::MemoryPool *pool, std::shared_ptr<const Type> type, BufferPtr nulls, vector_size_t length,
+             BufferPtr values, std::vector<BufferPtr> stringBuffers = {})
+      : SimpleVector<T>(pool, type, VectorEncoding::Simple::FLAT, std::move(nulls), length), values_(std::move(values)),
+        stringBuffers_(std::move(stringBuffers)) {
 
     if (values_) {
       rawValues_ = values_->as<T>();
@@ -24,8 +23,7 @@ public:
 
   T valueAt(vector_size_t index) const override { return rawValues_[index]; }
 
-  void copy(const BaseVector *source, vector_size_t sourceIndex,
-            vector_size_t targetIndex) override {
+  void copy(const BaseVector *source, vector_size_t sourceIndex, vector_size_t targetIndex) override {
     auto *srcVec = static_cast<const FlatVector<T> *>(source);
     const_cast<T *>(rawValues_)[targetIndex] = srcVec->valueAt(sourceIndex);
 

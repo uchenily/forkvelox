@@ -16,12 +16,9 @@ inline void setBit(uint64_t *bits, uint64_t index, bool value) {
   }
 }
 
-inline bool isBitSet(const uint64_t *bits, uint64_t index) {
-  return bits[index / 64] & (1ULL << (index % 64));
-}
+inline bool isBitSet(const uint64_t *bits, uint64_t index) { return bits[index / 64] & (1ULL << (index % 64)); }
 
-inline void fillBits(uint64_t *bits, uint64_t start, uint64_t length,
-                     bool value) {
+inline void fillBits(uint64_t *bits, uint64_t start, uint64_t length, bool value) {
   // Naive implementation
   for (uint64_t i = 0; i < length; ++i) {
     setBit(bits, start + i, value);

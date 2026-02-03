@@ -48,11 +48,9 @@ struct DrawableTree {
 
     std::size_t childrenWidth = 0;
     if (!drawableChildren.empty()) {
-      auto sumChildrenOnly = std::accumulate(
-          drawableChildren.begin(), drawableChildren.end(), std::size_t{0},
-          [](std::size_t sum, const DrawableTreePtr &child) {
-            return sum + child->overallWidth;
-          });
+      auto sumChildrenOnly =
+          std::accumulate(drawableChildren.begin(), drawableChildren.end(), std::size_t{0},
+                          [](std::size_t sum, const DrawableTreePtr &child) { return sum + child->overallWidth; });
       childrenWidth = sumChildrenOnly + (drawableChildren.size() - 1) * kMargin;
     }
 
@@ -60,9 +58,7 @@ struct DrawableTree {
     if (!drawableChildren.empty()) {
       auto highest = *std::max_element(
           drawableChildren.begin(), drawableChildren.end(),
-          [](const DrawableTreePtr &a, const DrawableTreePtr &b) {
-            return a->overallHeight < b->overallHeight;
-          });
+          [](const DrawableTreePtr &a, const DrawableTreePtr &b) { return a->overallHeight < b->overallHeight; });
       childrenHeight = highest->overallHeight;
     }
 
@@ -70,8 +66,7 @@ struct DrawableTree {
     std::size_t height = 1;
 
     std::size_t overallWidth = std::max(width, childrenWidth);
-    std::size_t overallHeight =
-        childrenHeight == 0 ? height : height + childrenHeight + 1;
+    std::size_t overallHeight = childrenHeight == 0 ? height : height + childrenHeight + 1;
 
     auto centerOfCurrentBox = (width - 1) / 2;
     auto centerX = centerOfCurrentBox;
@@ -81,25 +76,19 @@ struct DrawableTree {
       auto firstChildCenter = drawableChildren.front()->centerX;
       auto lastChildCenter = drawableChildren.back()->centerX;
       auto connectionBarWidth =
-          childrenWidth - (firstChildCenter - 1) -
-          (drawableChildren.back()->overallWidth - lastChildCenter);
-      auto centerOfChildren =
-          firstChildCenter + (connectionBarWidth + 1) / 2 - 1;
+          childrenWidth - (firstChildCenter - 1) - (drawableChildren.back()->overallWidth - lastChildCenter);
+      auto centerOfChildren = firstChildCenter + (connectionBarWidth + 1) / 2 - 1;
       centerX = std::max(centerOfCurrentBox, centerOfChildren);
-      childrenLeftOffset = std::max(0, static_cast<int>(centerOfCurrentBox) -
-                                           static_cast<int>(centerOfChildren));
+      childrenLeftOffset = std::max(0, static_cast<int>(centerOfCurrentBox) - static_cast<int>(centerOfChildren));
       auto currentNodeRightBuffer = width / 2;
-      auto lastChildRightBuffer =
-          drawableChildren.back()->overallWidth - lastChildCenter;
+      auto lastChildRightBuffer = drawableChildren.back()->overallWidth - lastChildCenter;
       auto connectionBarRightBuffer = connectionBarWidth / 2;
       overallWidth =
-          std::max(centerX + currentNodeRightBuffer + 1,
-                   centerX + connectionBarRightBuffer + lastChildRightBuffer);
+          std::max(centerX + currentNodeRightBuffer + 1, centerX + connectionBarRightBuffer + lastChildRightBuffer);
     }
 
-    return std::make_shared<DrawableTree>(DrawableTree{
-        width, height, centerX, overallWidth, overallHeight, root->label,
-        childrenLeftOffset, std::move(drawableChildren)});
+    return std::make_shared<DrawableTree>(DrawableTree{width, height, centerX, overallWidth, overallHeight, root->label,
+                                                       childrenLeftOffset, std::move(drawableChildren)});
   }
 
   std::string render(std::string_view title = "") {
@@ -148,8 +137,7 @@ private:
 
       if (childId != children.size() - 1) {
         std::size_t start = childPos.x + child->centerX + 1;
-        std::size_t end = childPos.x + child->overallWidth + kMargin +
-                          children[childId + 1]->centerX;
+        std::size_t end = childPos.x + child->overallWidth + kMargin + children[childId + 1]->centerX;
 
         for (std::size_t x = start; x < end; ++x) {
           if (x != pos.x + centerX) {

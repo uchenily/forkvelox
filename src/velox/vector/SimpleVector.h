@@ -5,15 +5,15 @@
 
 namespace facebook::velox {
 
-template <typename T> class SimpleVector : public BaseVector {
+template <typename T>
+class SimpleVector : public BaseVector {
 public:
   using BaseVector::BaseVector;
   using BaseVector::toString;
 
   virtual T valueAt(vector_size_t index) const = 0;
 
-  int32_t compare(const BaseVector *other, vector_size_t index,
-                  vector_size_t otherIndex) const override {
+  int32_t compare(const BaseVector *other, vector_size_t index, vector_size_t otherIndex) const override {
     // Assume same type for now
     auto *otherVec = static_cast<const SimpleVector<T> *>(other);
     T v1 = valueAt(index);
@@ -25,8 +25,7 @@ public:
     return 0;
   }
 
-  void copy(const BaseVector *source, vector_size_t sourceIndex,
-            vector_size_t targetIndex) override {
+  void copy(const BaseVector *source, vector_size_t sourceIndex, vector_size_t targetIndex) override {
     auto *srcVec = static_cast<const SimpleVector<T> *>(source);
     // Mutable access needs to be handled in FlatVector mostly, but SimpleVector
     // stores rawValues_ pointer usually Actually FlatVector owns the buffer.

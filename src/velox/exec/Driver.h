@@ -20,16 +20,11 @@ enum class BlockingReason {
 
 class Driver {
 public:
-  Driver(std::vector<std::shared_ptr<Operator>> operators)
-      : operators_(std::move(operators)) {}
+  Driver(std::vector<std::shared_ptr<Operator>> operators) : operators_(std::move(operators)) {}
 
-  void setCancelCheck(std::function<bool()> cancelCheck) {
-    cancelCheck_ = std::move(cancelCheck);
-  }
+  void setCancelCheck(std::function<bool()> cancelCheck) { cancelCheck_ = std::move(cancelCheck); }
 
-  void setYieldCheck(std::function<bool()> yieldCheck) {
-    yieldCheck_ = std::move(yieldCheck);
-  }
+  void setYieldCheck(std::function<bool()> yieldCheck) { yieldCheck_ = std::move(yieldCheck); }
 
   bool shouldStop() const { return cancelCheck_ && cancelCheck_(); }
 
@@ -46,8 +41,7 @@ public:
       }
 
       auto &source = operators_.front();
-      std::cout << "[Driver] Pulling from source "
-                << source->planNode()->toString() << std::endl;
+      std::cout << "[Driver] Pulling from source " << source->planNode()->toString() << std::endl;
       auto batch = source->getOutput();
       if (batch) {
         std::cout << "[Driver] Source produced " << batch->size() << std::endl;
@@ -83,8 +77,7 @@ public:
             for (size_t i = 1; i < operators_.size(); ++i) {
               auto batch = operators_[i]->getOutput();
               if (batch) {
-                std::cout << "[Driver] Flushed batch from "
-                          << operators_[i]->planNode()->toString() << std::endl;
+                std::cout << "[Driver] Flushed batch from " << operators_[i]->planNode()->toString() << std::endl;
                 if (i == operators_.size() - 1)
                   results.push_back(batch);
                 else
@@ -118,8 +111,7 @@ struct DriverFactory {
 
   std::shared_ptr<Driver> createDriver(
       core::ExecCtx *execCtx,
-      const std::function<std::shared_ptr<Operator>(
-          const core::PlanNodePtr &, core::ExecCtx *)> &makeOperator) const {
+      const std::function<std::shared_ptr<Operator>(const core::PlanNodePtr &, core::ExecCtx *)> &makeOperator) const {
     std::vector<std::shared_ptr<Operator>> ops;
     ops.reserve(planNodes.size() + (operatorSupplier ? 1 : 0));
     for (const auto &node : planNodes) {

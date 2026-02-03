@@ -10,8 +10,7 @@ namespace facebook::velox::memory {
 
 class MemoryPool : public std::enable_shared_from_this<MemoryPool> {
 public:
-  MemoryPool(const std::string &name,
-             std::shared_ptr<MemoryPool> parent = nullptr)
+  MemoryPool(const std::string &name, std::shared_ptr<MemoryPool> parent = nullptr)
       : name_(name), parent_(parent), currentBytes_(0) {}
 
   virtual ~MemoryPool() = default;

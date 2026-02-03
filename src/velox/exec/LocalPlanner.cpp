@@ -15,12 +15,10 @@ bool mustStartNewPipeline(const core::PlanNodePtr &planNode, int32_t sourceId) {
   return sourceId != 0;
 }
 
-OperatorSupplier makeOperatorSupplier(
-    const core::PlanNodePtr &planNode,
-    const std::unordered_map<core::PlanNodeId, std::shared_ptr<HashJoinBridge>>
-        *bridges) {
-  if (auto join =
-          std::dynamic_pointer_cast<const core::HashJoinNode>(planNode)) {
+OperatorSupplier
+makeOperatorSupplier(const core::PlanNodePtr &planNode,
+                     const std::unordered_map<core::PlanNodeId, std::shared_ptr<HashJoinBridge>> *bridges) {
+  if (auto join = std::dynamic_pointer_cast<const core::HashJoinNode>(planNode)) {
     VELOX_CHECK(bridges != nullptr, "Missing join bridges for HashJoin build");
     auto it = bridges->find(join->id());
     VELOX_CHECK(it != bridges->end(), "Missing HashJoin bridge for plan node");
@@ -31,12 +29,9 @@ OperatorSupplier makeOperatorSupplier(
   return OperatorSupplier();
 }
 
-void plan(const core::PlanNodePtr &planNode,
-          std::vector<core::PlanNodePtr> *currentPlanNodes,
-          const core::PlanNodePtr &consumerNode,
-          OperatorSupplier operatorSupplier,
-          const std::unordered_map<core::PlanNodeId,
-                                   std::shared_ptr<HashJoinBridge>> *bridges,
+void plan(const core::PlanNodePtr &planNode, std::vector<core::PlanNodePtr> *currentPlanNodes,
+          const core::PlanNodePtr &consumerNode, OperatorSupplier operatorSupplier,
+          const std::unordered_map<core::PlanNodeId, std::shared_ptr<HashJoinBridge>> *bridges,
           std::vector<std::unique_ptr<DriverFactory>> *driverFactories) {
   if (!currentPlanNodes) {
     auto driverFactory = std::make_unique<DriverFactory>();
@@ -51,10 +46,8 @@ void plan(const core::PlanNodePtr &planNode,
     driverFactories->back()->inputDriver = true;
   } else {
     for (int32_t i = 0; i < static_cast<int32_t>(sources.size()); ++i) {
-      plan(sources[i],
-           mustStartNewPipeline(planNode, i) ? nullptr : currentPlanNodes,
-           planNode, makeOperatorSupplier(planNode, bridges), bridges,
-           driverFactories);
+      plan(sources[i], mustStartNewPipeline(planNode, i) ? nullptr : currentPlanNodes, planNode,
+           makeOperatorSupplier(planNode, bridges), bridges, driverFactories);
     }
   }
 
@@ -67,14 +60,12 @@ size_t maxDrivers(const DriverFactory &driverFactory, size_t maxDriversHint) {
     if (std::dynamic_pointer_cast<const core::TopNNode>(node)) {
       return 1;
     }
-    if (auto orderBy =
-            std::dynamic_pointer_cast<const core::OrderByNode>(node)) {
+    if (auto orderBy = std::dynamic_pointer_cast<const core::OrderByNode>(node)) {
       if (!orderBy->isPartial()) {
         return 1;
       }
     }
-    if (auto agg =
-            std::dynamic_pointer_cast<const core::AggregationNode>(node)) {
+    if (auto agg = std::dynamic_pointer_cast<const core::AggregationNode>(node)) {
       if (!agg->isPartial()) {
         return 1;
       }
@@ -88,15 +79,11 @@ size_t maxDrivers(const DriverFactory &driverFactory, size_t maxDriversHint) {
 
 } // namespace detail
 
-void LocalPlanner::plan(
-    const core::PlanNodePtr &plan,
-    const std::unordered_map<core::PlanNodeId, std::shared_ptr<HashJoinBridge>>
-        *bridges,
-    std::vector<std::unique_ptr<DriverFactory>> *driverFactories,
-    size_t maxDrivers) {
+void LocalPlanner::plan(const core::PlanNodePtr &plan,
+                        const std::unordered_map<core::PlanNodeId, std::shared_ptr<HashJoinBridge>> *bridges,
+                        std::vector<std::unique_ptr<DriverFactory>> *driverFactories, size_t maxDrivers) {
   VELOX_CHECK(driverFactories != nullptr, "Driver factories must be provided");
-  detail::plan(plan, nullptr, nullptr, OperatorSupplier(), bridges,
-               driverFactories);
+  detail::plan(plan, nullptr, nullptr, OperatorSupplier(), bridges, driverFactories);
   for (auto &factory : *driverFactories) {
     factory->numDrivers = detail::maxDrivers(*factory, maxDrivers);
   }

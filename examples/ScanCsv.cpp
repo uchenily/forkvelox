@@ -25,17 +25,14 @@ int main(int argc, char **argv) {
   memory::initializeMemoryManager(memory::MemoryManager::Options{});
   auto pool = memory::defaultMemoryPool();
 
-  const std::string filePath =
-      (argc >= 2) ? std::string{argv[1]} : std::string{"data/sample.csv"};
+  const std::string filePath = (argc >= 2) ? std::string{argv[1]} : std::string{"data/sample.csv"};
   dwio::common::ReaderOptions readerOpts{pool.get()};
   readerOpts.setFileFormat(dwio::common::FileFormat::CSV);
 
-  auto reader =
-      dwio::common::getReaderFactory(dwio::common::FileFormat::CSV)
-          ->createReader(std::make_unique<dwio::common::BufferedInput>(
-                             std::make_shared<LocalReadFile>(filePath),
-                             readerOpts.memoryPool()),
-                         readerOpts);
+  auto reader = dwio::common::getReaderFactory(dwio::common::FileFormat::CSV)
+                    ->createReader(std::make_unique<dwio::common::BufferedInput>(
+                                       std::make_shared<LocalReadFile>(filePath), readerOpts.memoryPool()),
+                                   readerOpts);
 
   VectorPtr batch;
   dwio::common::RowReaderOptions rowReaderOptions;

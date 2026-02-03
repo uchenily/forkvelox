@@ -31,13 +31,10 @@ private:
 // Nodes
 class ValuesNode : public PlanNode {
 public:
-  ValuesNode(PlanNodeId id, std::vector<RowVectorPtr> values)
-      : id_(id), values_(std::move(values)) {}
+  ValuesNode(PlanNodeId id, std::vector<RowVectorPtr> values) : id_(id), values_(std::move(values)) {}
   const PlanNodeId &id() const override { return id_; }
   std::string toString() const override { return "Values"; }
-  std::vector<std::shared_ptr<const PlanNode>> sources() const override {
-    return {};
-  }
+  std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {}; }
   const std::vector<RowVectorPtr> &values() const { return values_; }
 
 private:
@@ -47,13 +44,10 @@ private:
 
 class FilterNode : public PlanNode {
 public:
-  FilterNode(PlanNodeId id, PlanNodePtr source, TypedExprPtr filter)
-      : id_(id), source_(source), filter_(filter) {}
+  FilterNode(PlanNodeId id, PlanNodePtr source, TypedExprPtr filter) : id_(id), source_(source), filter_(filter) {}
   const PlanNodeId &id() const override { return id_; }
   std::string toString() const override { return "Filter"; }
-  std::vector<std::shared_ptr<const PlanNode>> sources() const override {
-    return {source_};
-  }
+  std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {source_}; }
   const TypedExprPtr &filter() const { return filter_; }
 
 private:
@@ -69,22 +63,17 @@ class AggregationNode : public PlanNode {
 public:
   enum class Step { kSingle, kPartial, kIntermediate, kFinal };
 
-  AggregationNode(PlanNodeId id, PlanNodePtr source,
-                  std::vector<std::string> groupingKeys,
+  AggregationNode(PlanNodeId id, PlanNodePtr source, std::vector<std::string> groupingKeys,
                   std::vector<std::string> aggregates, Step step)
-      : id_(id), source_(source), groupingKeys_(std::move(groupingKeys)),
-        aggregates_(std::move(aggregates)), step_(step) {}
+      : id_(id), source_(source), groupingKeys_(std::move(groupingKeys)), aggregates_(std::move(aggregates)),
+        step_(step) {}
   const PlanNodeId &id() const override { return id_; }
   std::string toString() const override { return "Aggregation"; }
-  std::vector<std::shared_ptr<const PlanNode>> sources() const override {
-    return {source_};
-  }
+  std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {source_}; }
   const std::vector<std::string> &aggregates() const { return aggregates_; }
   const std::vector<std::string> &groupingKeys() const { return groupingKeys_; }
   Step step() const { return step_; }
-  bool isPartial() const {
-    return step_ == Step::kPartial || step_ == Step::kIntermediate;
-  }
+  bool isPartial() const { return step_ == Step::kPartial || step_ == Step::kIntermediate; }
 
 private:
   PlanNodeId id_;
@@ -96,15 +85,11 @@ private:
 
 class OrderByNode : public PlanNode {
 public:
-  OrderByNode(PlanNodeId id, PlanNodePtr source, std::vector<std::string> keys,
-              bool isPartial)
-      : id_(id), source_(source), keys_(std::move(keys)),
-        isPartial_(isPartial) {}
+  OrderByNode(PlanNodeId id, PlanNodePtr source, std::vector<std::string> keys, bool isPartial)
+      : id_(id), source_(source), keys_(std::move(keys)), isPartial_(isPartial) {}
   const PlanNodeId &id() const override { return id_; }
   std::string toString() const override { return "OrderBy"; }
-  std::vector<std::shared_ptr<const PlanNode>> sources() const override {
-    return {source_};
-  }
+  std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {source_}; }
   const std::vector<std::string> &keys() const { return keys_; }
   bool isPartial() const { return isPartial_; }
 
@@ -117,14 +102,11 @@ private:
 
 class TopNNode : public PlanNode {
 public:
-  TopNNode(PlanNodeId id, PlanNodePtr source, int count,
-           std::vector<std::string> keys)
+  TopNNode(PlanNodeId id, PlanNodePtr source, int count, std::vector<std::string> keys)
       : id_(id), source_(source), count_(count), keys_(std::move(keys)) {}
   const PlanNodeId &id() const override { return id_; }
   std::string toString() const override { return "TopN"; }
-  std::vector<std::shared_ptr<const PlanNode>> sources() const override {
-    return {source_};
-  }
+  std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {source_}; }
   int count() const { return count_; }
   const std::vector<std::string> &keys() const { return keys_; }
 
@@ -137,14 +119,11 @@ private:
 
 class TableScanNode : public PlanNode {
 public:
-  TableScanNode(PlanNodeId id, tpch::Table table,
-                std::vector<std::string> columns)
+  TableScanNode(PlanNodeId id, tpch::Table table, std::vector<std::string> columns)
       : id_(id), table_(table), columns_(std::move(columns)) {}
   const PlanNodeId &id() const override { return id_; }
   std::string toString() const override { return "TableScan"; }
-  std::vector<std::shared_ptr<const PlanNode>> sources() const override {
-    return {};
-  }
+  std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {}; }
   tpch::Table table() const { return table_; }
   const std::vector<std::string> &columns() const { return columns_; }
 
@@ -156,13 +135,10 @@ private:
 
 class HashJoinNode : public PlanNode {
 public:
-  HashJoinNode(PlanNodeId id, PlanNodePtr probe, PlanNodePtr build)
-      : id_(id), probe_(probe), build_(build) {}
+  HashJoinNode(PlanNodeId id, PlanNodePtr probe, PlanNodePtr build) : id_(id), probe_(probe), build_(build) {}
   const PlanNodeId &id() const override { return id_; }
   std::string toString() const override { return "HashJoin"; }
-  std::vector<std::shared_ptr<const PlanNode>> sources() const override {
-    return {probe_, build_};
-  }
+  std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {probe_, build_}; }
 
 private:
   PlanNodeId id_;
@@ -176,9 +152,7 @@ public:
       : id_(id), outputType_(std::move(outputType)), path_(std::move(path)) {}
   const PlanNodeId &id() const override { return id_; }
   std::string toString() const override { return "FileScan"; }
-  std::vector<std::shared_ptr<const PlanNode>> sources() const override {
-    return {};
-  }
+  std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {}; }
   const RowTypePtr &outputType() const { return outputType_; }
   const std::string &path() const { return path_; }
 
@@ -194,9 +168,7 @@ public:
       : id_(id), source_(source), path_(std::move(path)) {}
   const PlanNodeId &id() const override { return id_; }
   std::string toString() const override { return "TableWrite"; }
-  std::vector<std::shared_ptr<const PlanNode>> sources() const override {
-    return {source_};
-  }
+  std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {source_}; }
   const std::string &path() const { return path_; }
 
 private:
@@ -210,9 +182,7 @@ public:
   explicit LocalExchangeNode(PlanNodeId id) : id_(std::move(id)) {}
   const PlanNodeId &id() const override { return id_; }
   std::string toString() const override { return "LocalExchange"; }
-  std::vector<std::shared_ptr<const PlanNode>> sources() const override {
-    return {};
-  }
+  std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {}; }
 
 private:
   PlanNodeId id_;
@@ -221,13 +191,10 @@ private:
 class LocalPartitionNode : public PlanNode {
 public:
   LocalPartitionNode(PlanNodeId id, PlanNodePtr source, std::string exchangeId)
-      : id_(std::move(id)), source_(std::move(source)),
-        exchangeId_(std::move(exchangeId)) {}
+      : id_(std::move(id)), source_(std::move(source)), exchangeId_(std::move(exchangeId)) {}
   const PlanNodeId &id() const override { return id_; }
   std::string toString() const override { return "LocalPartition"; }
-  std::vector<std::shared_ptr<const PlanNode>> sources() const override {
-    return {source_};
-  }
+  std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {source_}; }
   const std::string &exchangeId() const { return exchangeId_; }
 
 private:
@@ -239,13 +206,10 @@ private:
 class LocalMergeNode : public PlanNode {
 public:
   LocalMergeNode(PlanNodeId id, PlanNodePtr source, std::string exchangeId)
-      : id_(std::move(id)), source_(std::move(source)),
-        exchangeId_(std::move(exchangeId)) {}
+      : id_(std::move(id)), source_(std::move(source)), exchangeId_(std::move(exchangeId)) {}
   const PlanNodeId &id() const override { return id_; }
   std::string toString() const override { return "LocalMerge"; }
-  std::vector<std::shared_ptr<const PlanNode>> sources() const override {
-    return {source_};
-  }
+  std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {source_}; }
   const std::string &exchangeId() const { return exchangeId_; }
 
 private:

@@ -45,8 +45,7 @@ protected:
   bool noMoreInput_ = false;
 };
 
-using OperatorSupplier =
-    std::function<std::shared_ptr<Operator>(core::ExecCtx *)>;
+using OperatorSupplier = std::function<std::shared_ptr<Operator>(core::ExecCtx *)>;
 
 class HashJoinBridge {
 public:
@@ -56,8 +55,7 @@ public:
     if (!batch || batch->size() == 0) {
       return;
     }
-    auto keyCol =
-        std::dynamic_pointer_cast<SimpleVector<int64_t>>(batch->childAt(0));
+    auto keyCol = std::dynamic_pointer_cast<SimpleVector<int64_t>>(batch->childAt(0));
     if (!keyCol) {
       VELOX_FAIL("HashJoin build side expects int64 key in column 0");
     }
@@ -76,13 +74,9 @@ public:
 
   bool isBuildFinished() const { return buildFinished_; }
 
-  const std::vector<RowVectorPtr> &buildBatches() const {
-    return buildBatches_;
-  }
+  const std::vector<RowVectorPtr> &buildBatches() const { return buildBatches_; }
 
-  const std::unordered_multimap<int64_t, BuildRow> &buildIndex() const {
-    return buildIndex_;
-  }
+  const std::unordered_multimap<int64_t, BuildRow> &buildIndex() const { return buildIndex_; }
 
 private:
   std::vector<RowVectorPtr> buildBatches_;
@@ -93,8 +87,7 @@ private:
 
 class ValuesOperator : public Operator {
 public:
-  ValuesOperator(core::PlanNodePtr node,
-                 std::shared_ptr<SourceState> state = nullptr)
+  ValuesOperator(core::PlanNodePtr node, std::shared_ptr<SourceState> state = nullptr)
       : Operator(node), state_(std::move(state)) {
     if (!state_) {
       auto valuesNode = std::dynamic_pointer_cast<const core::ValuesNode>(node);
@@ -115,9 +108,7 @@ public:
       return values_[current_++];
     return nullptr;
   }
-  bool isFinished() override {
-    return state_ ? finished_ : current_ >= values_.size();
-  }
+  bool isFinished() override { return state_ ? finished_ : current_ >= values_.size(); }
   bool needsInput() const override { return false; }
 
 private:
@@ -129,8 +120,7 @@ private:
 
 class LocalExchangeSourceOperator : public Operator {
 public:
-  LocalExchangeSourceOperator(core::PlanNodePtr node,
-                              std::shared_ptr<LocalExchangeQueue> queue)
+  LocalExchangeSourceOperator(core::PlanNodePtr node, std::shared_ptr<LocalExchangeQueue> queue)
       : Operator(node), queue_(std::move(queue)) {}
   bool needsInput() const override { return false; }
   void addInput(RowVectorPtr input) override {}
@@ -154,8 +144,7 @@ private:
 
 class LocalExchangeSinkOperator : public Operator {
 public:
-  LocalExchangeSinkOperator(core::PlanNodePtr node,
-                            std::shared_ptr<LocalExchangeQueue> queue)
+  LocalExchangeSinkOperator(core::PlanNodePtr node, std::shared_ptr<LocalExchangeQueue> queue)
       : Operator(node), queue_(std::move(queue)) {}
   bool needsInput() const override { return !noMoreInput_; }
   void addInput(RowVectorPtr input) override {
@@ -181,8 +170,7 @@ private:
 class TableWriteOperator : public Operator {
 public:
   TableWriteOperator(core::PlanNodePtr node) : Operator(node) {
-    auto writeNode =
-        std::dynamic_pointer_cast<const core::TableWriteNode>(node);
+    auto writeNode = std::dynamic_pointer_cast<const core::TableWriteNode>(node);
     path_ = writeNode->path();
   }
   bool needsInput() const override { return !noMoreInput_; }
@@ -208,8 +196,7 @@ private:
 
 class FileScanOperator : public Operator {
 public:
-  FileScanOperator(core::PlanNodePtr node, core::ExecCtx *ctx,
-                   std::shared_ptr<SourceState> state = nullptr)
+  FileScanOperator(core::PlanNodePtr node, core::ExecCtx *ctx, std::shared_ptr<SourceState> state = nullptr)
       : Operator(node), ctx_(ctx), state_(std::move(state)) {
     auto scanNode = std::dynamic_pointer_cast<const core::FileScanNode>(node);
     path_ = scanNode->path();
@@ -301,38 +288,32 @@ public:
           break;
         }
     }
-    std::sort(rowIndices.begin(), rowIndices.end(),
-              [&](const std::pair<int, int> &a, const std::pair<int, int> &b) {
-                for (size_t k = 0; k < colIndices.size(); ++k) {
-                  int colIdx = colIndices[k];
-                  int cmp = batches_[a.first]->childAt(colIdx)->compare(
-                      batches_[b.first]->childAt(colIdx).get(), a.second,
-                      b.second);
-                  if (cmp != 0)
-                    return desc_[k] ? (cmp > 0) : (cmp < 0);
-                }
-                return false;
-              });
+    std::sort(rowIndices.begin(), rowIndices.end(), [&](const std::pair<int, int> &a, const std::pair<int, int> &b) {
+      for (size_t k = 0; k < colIndices.size(); ++k) {
+        int colIdx = colIndices[k];
+        int cmp =
+            batches_[a.first]->childAt(colIdx)->compare(batches_[b.first]->childAt(colIdx).get(), a.second, b.second);
+        if (cmp != 0)
+          return desc_[k] ? (cmp > 0) : (cmp < 0);
+      }
+      return false;
+    });
     std::vector<VectorPtr> outCols;
     auto pool = batches_[0]->pool();
     for (size_t i = 0; i < rowType->size(); ++i) {
       auto type = rowType->childAt(i);
       VectorPtr col;
       if (type->kind() == TypeKind::BIGINT)
-        col = std::make_shared<FlatVector<int64_t>>(
-            pool, type, nullptr, totalRows,
-            AlignedBuffer::allocate(totalRows * sizeof(int64_t), pool));
+        col = std::make_shared<FlatVector<int64_t>>(pool, type, nullptr, totalRows,
+                                                    AlignedBuffer::allocate(totalRows * sizeof(int64_t), pool));
       else
-        col = std::make_shared<FlatVector<StringView>>(
-            pool, type, nullptr, totalRows,
-            AlignedBuffer::allocate(totalRows * sizeof(StringView), pool));
+        col = std::make_shared<FlatVector<StringView>>(pool, type, nullptr, totalRows,
+                                                       AlignedBuffer::allocate(totalRows * sizeof(StringView), pool));
       outCols.push_back(col);
     }
-    auto result =
-        std::make_shared<RowVector>(pool, rowType, nullptr, totalRows, outCols);
+    auto result = std::make_shared<RowVector>(pool, rowType, nullptr, totalRows, outCols);
     for (size_t i = 0; i < totalRows; ++i)
-      result->copy(batches_[rowIndices[i].first].get(), rowIndices[i].second,
-                   i);
+      result->copy(batches_[rowIndices[i].first].get(), rowIndices[i].second, i);
     produced_ = true;
     return result;
   }
@@ -394,18 +375,16 @@ public:
           break;
         }
     }
-    std::sort(rowIndices.begin(), rowIndices.end(),
-              [&](const std::pair<int, int> &a, const std::pair<int, int> &b) {
-                for (size_t k = 0; k < colIndices.size(); ++k) {
-                  int colIdx = colIndices[k];
-                  int cmp = batches_[a.first]->childAt(colIdx)->compare(
-                      batches_[b.first]->childAt(colIdx).get(), a.second,
-                      b.second);
-                  if (cmp != 0)
-                    return desc_[k] ? (cmp > 0) : (cmp < 0);
-                }
-                return false;
-              });
+    std::sort(rowIndices.begin(), rowIndices.end(), [&](const std::pair<int, int> &a, const std::pair<int, int> &b) {
+      for (size_t k = 0; k < colIndices.size(); ++k) {
+        int colIdx = colIndices[k];
+        int cmp =
+            batches_[a.first]->childAt(colIdx)->compare(batches_[b.first]->childAt(colIdx).get(), a.second, b.second);
+        if (cmp != 0)
+          return desc_[k] ? (cmp > 0) : (cmp < 0);
+      }
+      return false;
+    });
     if (limit_ >= 0 && totalRows > (size_t)limit_)
       totalRows = limit_;
     std::vector<VectorPtr> outCols;
@@ -414,20 +393,16 @@ public:
       auto type = rowType->childAt(i);
       VectorPtr col;
       if (type->kind() == TypeKind::BIGINT)
-        col = std::make_shared<FlatVector<int64_t>>(
-            pool, type, nullptr, totalRows,
-            AlignedBuffer::allocate(totalRows * sizeof(int64_t), pool));
+        col = std::make_shared<FlatVector<int64_t>>(pool, type, nullptr, totalRows,
+                                                    AlignedBuffer::allocate(totalRows * sizeof(int64_t), pool));
       else
-        col = std::make_shared<FlatVector<StringView>>(
-            pool, type, nullptr, totalRows,
-            AlignedBuffer::allocate(totalRows * sizeof(StringView), pool));
+        col = std::make_shared<FlatVector<StringView>>(pool, type, nullptr, totalRows,
+                                                       AlignedBuffer::allocate(totalRows * sizeof(StringView), pool));
       outCols.push_back(col);
     }
-    auto result =
-        std::make_shared<RowVector>(pool, rowType, nullptr, totalRows, outCols);
+    auto result = std::make_shared<RowVector>(pool, rowType, nullptr, totalRows, outCols);
     for (size_t i = 0; i < totalRows; ++i)
-      result->copy(batches_[rowIndices[i].first].get(), rowIndices[i].second,
-                   i);
+      result->copy(batches_[rowIndices[i].first].get(), rowIndices[i].second, i);
     produced_ = true;
     return result;
   }
@@ -443,8 +418,7 @@ private:
 
 class FilterOperator : public Operator {
 public:
-  FilterOperator(core::PlanNodePtr node, core::ExecCtx *ctx)
-      : Operator(node), ctx_(ctx) {
+  FilterOperator(core::PlanNodePtr node, core::ExecCtx *ctx) : Operator(node), ctx_(ctx) {
     auto filterNode = std::dynamic_pointer_cast<const core::FilterNode>(node);
     std::vector<core::TypedExprPtr> exprs = {filterNode->filter()};
     exprSet_ = std::make_unique<ExprSet>(exprs, ctx);
@@ -474,23 +448,18 @@ public:
       VectorPtr newCol;
       if (type->kind() == TypeKind::BIGINT)
         newCol = std::make_shared<FlatVector<int64_t>>(
-            pool, type, nullptr, selected.size(),
-            AlignedBuffer::allocate(selected.size() * sizeof(int64_t), pool));
+            pool, type, nullptr, selected.size(), AlignedBuffer::allocate(selected.size() * sizeof(int64_t), pool));
       else if (type->kind() == TypeKind::VARCHAR)
         newCol = std::make_shared<FlatVector<StringView>>(
-            pool, type, nullptr, selected.size(),
-            AlignedBuffer::allocate(selected.size() * sizeof(StringView),
-                                    pool));
+            pool, type, nullptr, selected.size(), AlignedBuffer::allocate(selected.size() * sizeof(StringView), pool));
       else
         newCol = std::make_shared<FlatVector<int32_t>>(
-            pool, type, nullptr, selected.size(),
-            AlignedBuffer::allocate(selected.size() * sizeof(int32_t), pool));
+            pool, type, nullptr, selected.size(), AlignedBuffer::allocate(selected.size() * sizeof(int32_t), pool));
       for (size_t i = 0; i < selected.size(); ++i)
         newCol->copy(input->childAt(col).get(), selected[i], i);
       children.push_back(newCol);
     }
-    input_ = std::make_shared<RowVector>(pool, rowType, nullptr,
-                                         selected.size(), children);
+    input_ = std::make_shared<RowVector>(pool, rowType, nullptr, selected.size(), children);
   }
   void noMoreInput() override {
     noMoreInput_ = true;
@@ -570,16 +539,14 @@ public:
       }
     }
   };
-  AggregationOperator(core::PlanNodePtr node, core::ExecCtx *ctx)
-      : Operator(node), ctx_(ctx) {
+  AggregationOperator(core::PlanNodePtr node, core::ExecCtx *ctx) : Operator(node), ctx_(ctx) {
     auto aggNode = std::dynamic_pointer_cast<const core::AggregationNode>(node);
     global_ = aggNode->groupingKeys().empty();
     groupingKeys_ = aggNode->groupingKeys();
     step_ = aggNode->step();
     for (const auto &agg : aggNode->aggregates()) {
       AggregateInfo info;
-      size_t open = agg.find('('), close = agg.find(')'),
-             asPos = agg.find(" AS ");
+      size_t open = agg.find('('), close = agg.find(')'), asPos = agg.find(" AS ");
       if (open != std::string::npos && close != std::string::npos) {
         info.func = agg.substr(0, open);
         info.arg = agg.substr(open + 1, close - open - 1);
@@ -619,8 +586,7 @@ public:
       groupKeysInitialized_ = true;
     }
 
-    if (step_ == core::AggregationNode::Step::kFinal ||
-        step_ == core::AggregationNode::Step::kIntermediate) {
+    if (step_ == core::AggregationNode::Step::kFinal || step_ == core::AggregationNode::Step::kIntermediate) {
       std::vector<int> aggColIndices;
       std::vector<int> aggCountIndices;
       aggColIndices.reserve(aggs_.size());
@@ -668,8 +634,7 @@ public:
         for (size_t j = 0; j < aggs_.size(); ++j) {
           auto &info = aggs_[j];
           auto &res = group.aggResults[j];
-          info.function->addIntermediate(input, i, aggColIndices[j],
-                                         aggCountIndices[j], res);
+          info.function->addIntermediate(input, i, aggColIndices[j], aggCountIndices[j], res);
         }
       }
       return;
@@ -691,8 +656,7 @@ public:
             break;
           }
         }
-        VELOX_CHECK(found, "Aggregation arg '{}' not found in input.",
-                    info.arg);
+        VELOX_CHECK(found, "Aggregation arg '{}' not found in input.", info.arg);
       }
       aggArgsInitialized_ = true;
     }
@@ -740,8 +704,7 @@ public:
       else
         outTypes.push_back(VARCHAR());
     }
-    if (step_ == core::AggregationNode::Step::kPartial ||
-        step_ == core::AggregationNode::Step::kIntermediate) {
+    if (step_ == core::AggregationNode::Step::kPartial || step_ == core::AggregationNode::Step::kIntermediate) {
       for (const auto &info : aggs_) {
         if (info.function->usesSumAndCount()) {
           outNames.push_back(info.alias + "_sum");
@@ -766,29 +729,24 @@ public:
     for (size_t k = 0; k < groupingKeys_.size(); ++k) {
       auto typeKind = outTypes[k]->kind();
       if (typeKind == TypeKind::BIGINT) {
-        auto col = std::make_shared<FlatVector<int64_t>>(
-            pool, outTypes[k], nullptr, numGroups,
-            AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
+        auto col = std::make_shared<FlatVector<int64_t>>(pool, outTypes[k], nullptr, numGroups,
+                                                         AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
         int i = 0;
         for (auto &[key, group] : groups_) {
           col->mutableRawValues()[i++] = group.keyValues[k].value<int64_t>();
         }
         outCols.push_back(col);
       } else if (typeKind == TypeKind::INTEGER) {
-        auto col = std::make_shared<FlatVector<int32_t>>(
-            pool, outTypes[k], nullptr, numGroups,
-            AlignedBuffer::allocate(numGroups * sizeof(int32_t), pool));
+        auto col = std::make_shared<FlatVector<int32_t>>(pool, outTypes[k], nullptr, numGroups,
+                                                         AlignedBuffer::allocate(numGroups * sizeof(int32_t), pool));
         int i = 0;
         for (auto &[key, group] : groups_) {
-          col->mutableRawValues()[i++] =
-              static_cast<int32_t>(group.keyValues[k].value<int64_t>());
+          col->mutableRawValues()[i++] = static_cast<int32_t>(group.keyValues[k].value<int64_t>());
         }
         outCols.push_back(col);
       } else if (typeKind == TypeKind::VARCHAR) {
-        auto values =
-            AlignedBuffer::allocate(numGroups * sizeof(StringView), pool);
-        auto col = std::make_shared<FlatVector<StringView>>(
-            pool, outTypes[k], nullptr, numGroups, values);
+        auto values = AlignedBuffer::allocate(numGroups * sizeof(StringView), pool);
+        auto col = std::make_shared<FlatVector<StringView>>(pool, outTypes[k], nullptr, numGroups, values);
         size_t totalLen = 0;
         for (auto &[key, group] : groups_) {
           totalLen += group.keyValues[k].value<std::string>().size();
@@ -800,28 +758,23 @@ public:
         for (auto &[key, group] : groups_) {
           const auto &str = group.keyValues[k].value<std::string>();
           std::memcpy(bufPtr + offset, str.data(), str.size());
-          col->mutableRawValues()[i++] =
-              StringView(bufPtr + offset, str.size());
+          col->mutableRawValues()[i++] = StringView(bufPtr + offset, str.size());
           offset += str.size();
         }
         col->addStringBuffer(dataBuffer);
         outCols.push_back(col);
       } else {
-        VELOX_FAIL(
-            "Unsupported grouping key type in AggregationOperator output.");
+        VELOX_FAIL("Unsupported grouping key type in AggregationOperator output.");
       }
     }
     for (size_t j = 0; j < aggs_.size(); ++j) {
       auto &info = aggs_[j];
-      if (step_ == core::AggregationNode::Step::kPartial ||
-          step_ == core::AggregationNode::Step::kIntermediate) {
+      if (step_ == core::AggregationNode::Step::kPartial || step_ == core::AggregationNode::Step::kIntermediate) {
         if (info.function->usesSumAndCount()) {
           auto sumCol = std::make_shared<FlatVector<int64_t>>(
-              pool, BIGINT(), nullptr, numGroups,
-              AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
+              pool, BIGINT(), nullptr, numGroups, AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
           auto countCol = std::make_shared<FlatVector<int64_t>>(
-              pool, BIGINT(), nullptr, numGroups,
-              AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
+              pool, BIGINT(), nullptr, numGroups, AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
           int i = 0;
           if (groups_.empty() && global_) {
             sumCol->mutableRawValues()[0] = 0;
@@ -837,9 +790,8 @@ public:
           outCols.push_back(sumCol);
           outCols.push_back(countCol);
         } else {
-          auto col = std::make_shared<FlatVector<int64_t>>(
-              pool, BIGINT(), nullptr, numGroups,
-              AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
+          auto col = std::make_shared<FlatVector<int64_t>>(pool, BIGINT(), nullptr, numGroups,
+                                                           AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
           int i = 0;
           if (groups_.empty() && global_)
             col->mutableRawValues()[0] = 0;
@@ -855,9 +807,8 @@ public:
           outCols.push_back(col);
         }
       } else {
-        auto col = std::make_shared<FlatVector<int64_t>>(
-            pool, BIGINT(), nullptr, numGroups,
-            AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
+        auto col = std::make_shared<FlatVector<int64_t>>(pool, BIGINT(), nullptr, numGroups,
+                                                         AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
         int i = 0;
         if (groups_.empty() && global_)
           col->mutableRawValues()[0] = 0;
@@ -872,8 +823,7 @@ public:
     }
     auto rowType = ROW(outNames, outTypes);
     produced_ = true;
-    return std::make_shared<RowVector>(pool, rowType, nullptr, numGroups,
-                                       outCols);
+    return std::make_shared<RowVector>(pool, rowType, nullptr, numGroups, outCols);
   }
   bool isFinished() override { return produced_; }
 
@@ -947,8 +897,7 @@ private:
 
 class HashBuildOperator : public Operator {
 public:
-  HashBuildOperator(core::PlanNodePtr node,
-                    std::shared_ptr<HashJoinBridge> bridge)
+  HashBuildOperator(core::PlanNodePtr node, std::shared_ptr<HashJoinBridge> bridge)
       : Operator(node), bridge_(std::move(bridge)) {}
   bool needsInput() const override { return !noMoreInput_; }
   void addInput(RowVectorPtr input) override {
@@ -973,8 +922,7 @@ private:
 
 class HashProbeOperator : public Operator {
 public:
-  HashProbeOperator(core::PlanNodePtr node, core::ExecCtx *ctx,
-                    std::shared_ptr<HashJoinBridge> bridge)
+  HashProbeOperator(core::PlanNodePtr node, core::ExecCtx *ctx, std::shared_ptr<HashJoinBridge> bridge)
       : Operator(node), ctx_(ctx), bridge_(std::move(bridge)) {}
   bool needsInput() const override { return !noMoreInput_; }
   void addInput(RowVectorPtr input) override {
@@ -1006,8 +954,7 @@ private:
   };
 
   RowVectorPtr buildOutput(const RowVectorPtr &probeBatch) {
-    auto probeKeyCol = std::dynamic_pointer_cast<SimpleVector<int64_t>>(
-        probeBatch->childAt(0));
+    auto probeKeyCol = std::dynamic_pointer_cast<SimpleVector<int64_t>>(probeBatch->childAt(0));
     if (!probeKeyCol) {
       VELOX_FAIL("HashJoin probe side expects int64 key in column 0");
     }
@@ -1024,23 +971,19 @@ private:
     }
     auto pool = ctx_->pool();
     auto keyCol = std::make_shared<FlatVector<int64_t>>(
-        pool, BIGINT(), nullptr, matches.size(),
-        AlignedBuffer::allocate(matches.size() * sizeof(int64_t), pool));
+        pool, BIGINT(), nullptr, matches.size(), AlignedBuffer::allocate(matches.size() * sizeof(int64_t), pool));
     auto outCol = std::make_shared<FlatVector<StringView>>(
-        pool, VARCHAR(), nullptr, matches.size(),
-        AlignedBuffer::allocate(matches.size() * sizeof(StringView), pool));
+        pool, VARCHAR(), nullptr, matches.size(), AlignedBuffer::allocate(matches.size() * sizeof(StringView), pool));
     const auto &buildBatches = bridge_->buildBatches();
     for (size_t i = 0; i < matches.size(); ++i) {
       const auto &match = matches[i];
       keyCol->mutableRawValues()[i] = probeKeyCol->valueAt(match.probeRow);
       auto buildBatch = buildBatches[match.buildRow.first];
-      auto nameCol = std::dynamic_pointer_cast<SimpleVector<StringView>>(
-          buildBatch->childAt(1));
+      auto nameCol = std::dynamic_pointer_cast<SimpleVector<StringView>>(buildBatch->childAt(1));
       outCol->copy(nameCol.get(), match.buildRow.second, i);
     }
-    return std::make_shared<RowVector>(
-        pool, ROW({"join_key", "r_name"}, {BIGINT(), VARCHAR()}), nullptr,
-        matches.size(), std::vector<VectorPtr>{keyCol, outCol});
+    return std::make_shared<RowVector>(pool, ROW({"join_key", "r_name"}, {BIGINT(), VARCHAR()}), nullptr,
+                                       matches.size(), std::vector<VectorPtr>{keyCol, outCol});
   }
 
   RowVectorPtr pendingOutput_;

@@ -9,8 +9,7 @@ namespace facebook::velox::dwio::common {
 class RowVectorFile {
 public:
   static void write(const RowVector &data, const std::string &path);
-  static void append(const RowVector &data, const std::string &path,
-                     bool includeHeader);
+  static void append(const RowVector &data, const std::string &path, bool includeHeader);
   static RowVectorPtr read(memory::MemoryPool *pool, const std::string &path);
 };
 

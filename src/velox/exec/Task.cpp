@@ -24,8 +24,7 @@ namespace {
 
 class ValuesSourceState : public SourceState {
 public:
-  explicit ValuesSourceState(std::vector<RowVectorPtr> values)
-      : values_(std::move(values)) {}
+  explicit ValuesSourceState(std::vector<RowVectorPtr> values) : values_(std::move(values)) {}
 
   RowVectorPtr next() override {
     auto index = next_.fetch_add(1);
@@ -40,8 +39,8 @@ private:
   std::atomic<size_t> next_{0};
 };
 
-RowVectorPtr sliceRowVector(const RowVector &data, vector_size_t offset,
-                            vector_size_t length, memory::MemoryPool *pool) {
+RowVectorPtr sliceRowVector(const RowVector &data, vector_size_t offset, vector_size_t length,
+                            memory::MemoryPool *pool) {
   auto rowType = asRowType(data.type());
   std::vector<VectorPtr> children;
   children.reserve(rowType->size());
@@ -50,17 +49,14 @@ RowVectorPtr sliceRowVector(const RowVector &data, vector_size_t offset,
     auto type = rowType->childAt(col);
     VectorPtr output;
     if (type->kind() == TypeKind::BIGINT) {
-      output = std::make_shared<FlatVector<int64_t>>(
-          pool, type, nullptr, length,
-          AlignedBuffer::allocate(length * sizeof(int64_t), pool));
+      output = std::make_shared<FlatVector<int64_t>>(pool, type, nullptr, length,
+                                                     AlignedBuffer::allocate(length * sizeof(int64_t), pool));
     } else if (type->kind() == TypeKind::INTEGER) {
-      output = std::make_shared<FlatVector<int32_t>>(
-          pool, type, nullptr, length,
-          AlignedBuffer::allocate(length * sizeof(int32_t), pool));
+      output = std::make_shared<FlatVector<int32_t>>(pool, type, nullptr, length,
+                                                     AlignedBuffer::allocate(length * sizeof(int32_t), pool));
     } else if (type->kind() == TypeKind::VARCHAR) {
-      output = std::make_shared<FlatVector<StringView>>(
-          pool, type, nullptr, length,
-          AlignedBuffer::allocate(length * sizeof(StringView), pool));
+      output = std::make_shared<FlatVector<StringView>>(pool, type, nullptr, length,
+                                                        AlignedBuffer::allocate(length * sizeof(StringView), pool));
     } else {
       VELOX_FAIL("Unsupported type for file scan slicing");
     }
@@ -70,16 +66,13 @@ RowVectorPtr sliceRowVector(const RowVector &data, vector_size_t offset,
     children.push_back(output);
   }
 
-  return std::make_shared<RowVector>(pool, rowType, nullptr, length,
-                                     std::move(children));
+  return std::make_shared<RowVector>(pool, rowType, nullptr, length, std::move(children));
 }
 
 class FileScanSourceState : public SourceState {
 public:
-  FileScanSourceState(std::string path, RowTypePtr expectedType,
-                      memory::MemoryPool *pool, vector_size_t batchSize)
-      : path_(std::move(path)), expectedType_(std::move(expectedType)),
-        pool_(pool), batchSize_(batchSize) {}
+  FileScanSourceState(std::string path, RowTypePtr expectedType, memory::MemoryPool *pool, vector_size_t batchSize)
+      : path_(std::move(path)), expectedType_(std::move(expectedType)), pool_(pool), batchSize_(batchSize) {}
 
   RowVectorPtr next() override {
     std::call_once(loadOnce_, [&]() { load(); });
@@ -103,10 +96,8 @@ private:
       batches_.push_back(data_);
       return;
     }
-    for (vector_size_t offset = 0; offset < data_->size();
-         offset += batchSize_) {
-      auto length = std::min(
-          batchSize_, static_cast<vector_size_t>(data_->size() - offset));
+    for (vector_size_t offset = 0; offset < data_->size(); offset += batchSize_) {
+      auto length = std::min(batchSize_, static_cast<vector_size_t>(data_->size() - offset));
       batches_.push_back(sliceRowVector(*data_, offset, length, pool_));
     }
   }
@@ -123,10 +114,9 @@ private:
 
 class FileSplitSourceState : public SourceState {
 public:
-  FileSplitSourceState(std::vector<exec::Split> splits, RowTypePtr expectedType,
-                       memory::MemoryPool *pool, vector_size_t batchSize)
-      : splits_(std::move(splits)), expectedType_(std::move(expectedType)),
-        pool_(pool), batchSize_(batchSize) {}
+  FileSplitSourceState(std::vector<exec::Split> splits, RowTypePtr expectedType, memory::MemoryPool *pool,
+                       vector_size_t batchSize)
+      : splits_(std::move(splits)), expectedType_(std::move(expectedType)), pool_(pool), batchSize_(batchSize) {}
 
   RowVectorPtr next() override {
     std::call_once(loadOnce_, [&]() { load(); });
@@ -154,10 +144,8 @@ private:
         batches_.push_back(data);
         continue;
       }
-      for (vector_size_t offset = 0; offset < data->size();
-           offset += batchSize_) {
-        auto length = std::min(
-            batchSize_, static_cast<vector_size_t>(data->size() - offset));
+      for (vector_size_t offset = 0; offset < data->size(); offset += batchSize_) {
+        auto length = std::min(batchSize_, static_cast<vector_size_t>(data->size() - offset));
         batches_.push_back(sliceRowVector(*data, offset, length, pool_));
       }
     }
@@ -172,28 +160,21 @@ private:
   std::once_flag loadOnce_;
 };
 
-using SourceStateMap =
-    std::unordered_map<core::PlanNodeId, std::shared_ptr<SourceState>>;
+using SourceStateMap = std::unordered_map<core::PlanNodeId, std::shared_ptr<SourceState>>;
 
-void collectSourceStates(
-    const core::PlanNodePtr &node, memory::MemoryPool *pool,
-    const std::unordered_map<core::PlanNodeId, std::vector<exec::Split>>
-        &splits,
-    SourceStateMap &states) {
+void collectSourceStates(const core::PlanNodePtr &node, memory::MemoryPool *pool,
+                         const std::unordered_map<core::PlanNodeId, std::vector<exec::Split>> &splits,
+                         SourceStateMap &states) {
   if (auto values = std::dynamic_pointer_cast<const core::ValuesNode>(node)) {
-    states.emplace(values->id(),
-                   std::make_shared<ValuesSourceState>(values->values()));
-  } else if (auto fileScan =
-                 std::dynamic_pointer_cast<const core::FileScanNode>(node)) {
+    states.emplace(values->id(), std::make_shared<ValuesSourceState>(values->values()));
+  } else if (auto fileScan = std::dynamic_pointer_cast<const core::FileScanNode>(node)) {
     auto splitIt = splits.find(fileScan->id());
     if (splitIt != splits.end() && !splitIt->second.empty()) {
       states.emplace(fileScan->id(),
-                     std::make_shared<FileSplitSourceState>(
-                         splitIt->second, fileScan->outputType(), pool, 1024));
+                     std::make_shared<FileSplitSourceState>(splitIt->second, fileScan->outputType(), pool, 1024));
     } else {
       states.emplace(fileScan->id(),
-                     std::make_shared<FileScanSourceState>(
-                         fileScan->path(), fileScan->outputType(), pool, 1024));
+                     std::make_shared<FileScanSourceState>(fileScan->path(), fileScan->outputType(), pool, 1024));
     }
   }
 
@@ -202,38 +183,27 @@ void collectSourceStates(
   }
 }
 
-void buildPipeline(core::PlanNodePtr node,
-                   std::vector<std::shared_ptr<Operator>> &ops,
-                   core::ExecCtx *ctx, const SourceStateMap &states) {
+void buildPipeline(core::PlanNodePtr node, std::vector<std::shared_ptr<Operator>> &ops, core::ExecCtx *ctx,
+                   const SourceStateMap &states) {
   if (auto values = std::dynamic_pointer_cast<const core::ValuesNode>(node)) {
     auto it = states.find(values->id());
-    ops.push_back(std::make_shared<ValuesOperator>(
-        node, it == states.end() ? nullptr : it->second));
-  } else if (auto fileScan =
-                 std::dynamic_pointer_cast<const core::FileScanNode>(node)) {
+    ops.push_back(std::make_shared<ValuesOperator>(node, it == states.end() ? nullptr : it->second));
+  } else if (auto fileScan = std::dynamic_pointer_cast<const core::FileScanNode>(node)) {
     auto it = states.find(fileScan->id());
-    ops.push_back(std::make_shared<FileScanOperator>(
-        node, ctx, it == states.end() ? nullptr : it->second));
-  } else if (auto write =
-                 std::dynamic_pointer_cast<const core::TableWriteNode>(node)) {
+    ops.push_back(std::make_shared<FileScanOperator>(node, ctx, it == states.end() ? nullptr : it->second));
+  } else if (auto write = std::dynamic_pointer_cast<const core::TableWriteNode>(node)) {
     ops.push_back(std::make_shared<TableWriteOperator>(node));
-  } else if (auto filter =
-                 std::dynamic_pointer_cast<const core::FilterNode>(node)) {
+  } else if (auto filter = std::dynamic_pointer_cast<const core::FilterNode>(node)) {
     ops.push_back(std::make_shared<FilterOperator>(node, ctx));
-  } else if (auto agg =
-                 std::dynamic_pointer_cast<const core::AggregationNode>(node)) {
+  } else if (auto agg = std::dynamic_pointer_cast<const core::AggregationNode>(node)) {
     ops.push_back(std::make_shared<AggregationOperator>(node, ctx));
-  } else if (auto orderBy =
-                 std::dynamic_pointer_cast<const core::OrderByNode>(node)) {
+  } else if (auto orderBy = std::dynamic_pointer_cast<const core::OrderByNode>(node)) {
     ops.push_back(std::make_shared<OrderByOperator>(node));
-  } else if (auto topN =
-                 std::dynamic_pointer_cast<const core::TopNNode>(node)) {
+  } else if (auto topN = std::dynamic_pointer_cast<const core::TopNNode>(node)) {
     ops.push_back(std::make_shared<TopNOperator>(node));
-  } else if (auto join =
-                 std::dynamic_pointer_cast<const core::HashJoinNode>(node)) {
+  } else if (auto join = std::dynamic_pointer_cast<const core::HashJoinNode>(node)) {
     ops.push_back(std::make_shared<HashProbeOperator>(node, ctx, nullptr));
-  } else if (auto scan =
-                 std::dynamic_pointer_cast<const core::TableScanNode>(node)) {
+  } else if (auto scan = std::dynamic_pointer_cast<const core::TableScanNode>(node)) {
     ops.push_back(std::make_shared<PassThroughOperator>(node));
   } else {
     ops.push_back(std::make_shared<PassThroughOperator>(node));
@@ -247,33 +217,21 @@ void buildPipeline(core::PlanNodePtr node,
 
 } // namespace
 
-std::shared_ptr<Task> Task::create(std::string taskId, core::PlanNodePtr plan,
-                                   std::shared_ptr<core::QueryCtx> queryCtx,
+std::shared_ptr<Task> Task::create(std::string taskId, core::PlanNodePtr plan, std::shared_ptr<core::QueryCtx> queryCtx,
                                    ExecutionMode mode) {
-  return std::shared_ptr<Task>(
-      new Task(std::move(taskId), std::move(plan), std::move(queryCtx), mode));
+  return std::shared_ptr<Task>(new Task(std::move(taskId), std::move(plan), std::move(queryCtx), mode));
 }
 
-Task::Task(std::string taskId, core::PlanNodePtr plan,
-           std::shared_ptr<core::QueryCtx> queryCtx, ExecutionMode mode)
-    : taskId_(std::move(taskId)), plan_(std::move(plan)),
-      queryCtx_(std::move(queryCtx)), mode_(mode) {}
+Task::Task(std::string taskId, core::PlanNodePtr plan, std::shared_ptr<core::QueryCtx> queryCtx, ExecutionMode mode)
+    : taskId_(std::move(taskId)), plan_(std::move(plan)), queryCtx_(std::move(queryCtx)), mode_(mode) {}
 
-void Task::addSplit(const core::PlanNodeId &id, exec::Split split) {
-  splits_[id].push_back(std::move(split));
-}
+void Task::addSplit(const core::PlanNodeId &id, exec::Split split) { splits_[id].push_back(std::move(split)); }
 
-void Task::noMoreSplits(const core::PlanNodeId &id) {
-  noMoreSplits_.insert(id);
-}
+void Task::noMoreSplits(const core::PlanNodeId &id) { noMoreSplits_.insert(id); }
 
-void Task::requestCancel() {
-  cancelled_.store(true, std::memory_order_relaxed);
-}
+void Task::requestCancel() { cancelled_.store(true, std::memory_order_relaxed); }
 
-bool Task::isCancelled() const {
-  return cancelled_.load(std::memory_order_relaxed);
-}
+bool Task::isCancelled() const { return cancelled_.load(std::memory_order_relaxed); }
 
 void Task::setError(std::string message) {
   std::lock_guard<std::mutex> lock(errorMutex_);
@@ -294,12 +252,10 @@ std::string Task::errorMessage() const {
 
 bool Task::shouldStop() const { return isCancelled() || hasError(); }
 
-void Task::enqueue(folly::Executor *executor, std::shared_ptr<Driver> driver,
-                   std::shared_ptr<core::ExecCtx> execCtx, bool outputPipeline,
-                   std::vector<RowVectorPtr> *results, std::mutex *resultsMutex,
+void Task::enqueue(folly::Executor *executor, std::shared_ptr<Driver> driver, std::shared_ptr<core::ExecCtx> execCtx,
+                   bool outputPipeline, std::vector<RowVectorPtr> *results, std::mutex *resultsMutex,
                    std::shared_ptr<std::latch> done) {
-  executor->add([this, executor, driver = std::move(driver),
-                 execCtx = std::move(execCtx), outputPipeline, results,
+  executor->add([this, executor, driver = std::move(driver), execCtx = std::move(execCtx), outputPipeline, results,
                  resultsMutex, done = std::move(done)]() mutable {
     if (shouldStop()) {
       done->count_down();
@@ -307,10 +263,8 @@ void Task::enqueue(folly::Executor *executor, std::shared_ptr<Driver> driver,
     }
 
     const auto start = std::chrono::steady_clock::now();
-    driver->setYieldCheck([start]() {
-      return std::chrono::steady_clock::now() - start >
-             std::chrono::milliseconds(2);
-    });
+    driver->setYieldCheck(
+        [start]() { return std::chrono::steady_clock::now() - start > std::chrono::milliseconds(2); });
 
     std::vector<RowVectorPtr> batches;
     BlockingReason reason = BlockingReason::kNotBlocked;
@@ -333,13 +287,11 @@ void Task::enqueue(folly::Executor *executor, std::shared_ptr<Driver> driver,
       requestCancel();
     }
 
-    if (reason == BlockingReason::kYield ||
-        reason == BlockingReason::kWaitForSplit ||
-        reason == BlockingReason::kWaitForExchange ||
-        reason == BlockingReason::kWaitForJoin) {
+    if (reason == BlockingReason::kYield || reason == BlockingReason::kWaitForSplit ||
+        reason == BlockingReason::kWaitForExchange || reason == BlockingReason::kWaitForJoin) {
       if (!shouldStop()) {
-        enqueue(executor, std::move(driver), std::move(execCtx), outputPipeline,
-                results, resultsMutex, std::move(done));
+        enqueue(executor, std::move(driver), std::move(execCtx), outputPipeline, results, resultsMutex,
+                std::move(done));
         return;
       }
     }
@@ -354,90 +306,71 @@ std::vector<RowVectorPtr> Task::run() {
     return {};
   }
 
-  using HashJoinBridgeMap =
-      std::unordered_map<core::PlanNodeId, std::shared_ptr<HashJoinBridge>>;
-  using ExchangeQueueMap =
-      std::unordered_map<std::string, std::shared_ptr<LocalExchangeQueue>>;
+  using HashJoinBridgeMap = std::unordered_map<core::PlanNodeId, std::shared_ptr<HashJoinBridge>>;
+  using ExchangeQueueMap = std::unordered_map<std::string, std::shared_ptr<LocalExchangeQueue>>;
 
-  auto makeOperatorForNode =
-      [&](const core::PlanNodePtr &node, core::ExecCtx *ctx,
-          const SourceStateMap &states, const HashJoinBridgeMap &bridges,
-          const ExchangeQueueMap &exchanges) -> std::shared_ptr<Operator> {
+  auto makeOperatorForNode = [&](const core::PlanNodePtr &node, core::ExecCtx *ctx, const SourceStateMap &states,
+                                 const HashJoinBridgeMap &bridges,
+                                 const ExchangeQueueMap &exchanges) -> std::shared_ptr<Operator> {
     if (auto values = std::dynamic_pointer_cast<const core::ValuesNode>(node)) {
       auto it = states.find(values->id());
       return std::static_pointer_cast<Operator>(
-          std::make_shared<ValuesOperator>(
-              node, it == states.end() ? nullptr : it->second));
+          std::make_shared<ValuesOperator>(node, it == states.end() ? nullptr : it->second));
     }
-    if (auto fileScan =
-            std::dynamic_pointer_cast<const core::FileScanNode>(node)) {
+    if (auto fileScan = std::dynamic_pointer_cast<const core::FileScanNode>(node)) {
       auto it = states.find(fileScan->id());
       return std::static_pointer_cast<Operator>(
-          std::make_shared<FileScanOperator>(
-              node, ctx, it == states.end() ? nullptr : it->second));
+          std::make_shared<FileScanOperator>(node, ctx, it == states.end() ? nullptr : it->second));
     }
     if (std::dynamic_pointer_cast<const core::TableWriteNode>(node)) {
-      return std::static_pointer_cast<Operator>(
-          std::make_shared<TableWriteOperator>(node));
+      return std::static_pointer_cast<Operator>(std::make_shared<TableWriteOperator>(node));
     }
     if (std::dynamic_pointer_cast<const core::FilterNode>(node)) {
-      return std::static_pointer_cast<Operator>(
-          std::make_shared<FilterOperator>(node, ctx));
+      return std::static_pointer_cast<Operator>(std::make_shared<FilterOperator>(node, ctx));
     }
     if (std::dynamic_pointer_cast<const core::AggregationNode>(node)) {
-      return std::static_pointer_cast<Operator>(
-          std::make_shared<AggregationOperator>(node, ctx));
+      return std::static_pointer_cast<Operator>(std::make_shared<AggregationOperator>(node, ctx));
     }
     if (std::dynamic_pointer_cast<const core::OrderByNode>(node)) {
-      return std::static_pointer_cast<Operator>(
-          std::make_shared<OrderByOperator>(node));
+      return std::static_pointer_cast<Operator>(std::make_shared<OrderByOperator>(node));
     }
     if (std::dynamic_pointer_cast<const core::TopNNode>(node)) {
-      return std::static_pointer_cast<Operator>(
-          std::make_shared<TopNOperator>(node));
+      return std::static_pointer_cast<Operator>(std::make_shared<TopNOperator>(node));
     }
     if (std::dynamic_pointer_cast<const core::HashJoinNode>(node)) {
       auto it = bridges.find(node->id());
       if (it == bridges.end()) {
         VELOX_FAIL("Missing HashJoin bridge for plan node");
       }
-      return std::static_pointer_cast<Operator>(
-          std::make_shared<HashProbeOperator>(node, ctx, it->second));
+      return std::static_pointer_cast<Operator>(std::make_shared<HashProbeOperator>(node, ctx, it->second));
     }
-    if (auto localPartition =
-            std::dynamic_pointer_cast<const core::LocalPartitionNode>(node)) {
+    if (auto localPartition = std::dynamic_pointer_cast<const core::LocalPartitionNode>(node)) {
       auto it = exchanges.find(localPartition->exchangeId());
       VELOX_CHECK(it != exchanges.end(), "Missing LocalExchange queue");
-      return std::static_pointer_cast<Operator>(
-          std::make_shared<LocalExchangeSinkOperator>(node, it->second));
+      return std::static_pointer_cast<Operator>(std::make_shared<LocalExchangeSinkOperator>(node, it->second));
     }
-    if (auto localMerge =
-            std::dynamic_pointer_cast<const core::LocalMergeNode>(node)) {
+    if (auto localMerge = std::dynamic_pointer_cast<const core::LocalMergeNode>(node)) {
       auto it = exchanges.find(localMerge->exchangeId());
       VELOX_CHECK(it != exchanges.end(), "Missing LocalExchange queue");
-      return std::static_pointer_cast<Operator>(
-          std::make_shared<LocalExchangeSourceOperator>(node, it->second));
+      return std::static_pointer_cast<Operator>(std::make_shared<LocalExchangeSourceOperator>(node, it->second));
     }
-    return std::static_pointer_cast<Operator>(
-        std::make_shared<PassThroughOperator>(node));
+    return std::static_pointer_cast<Operator>(std::make_shared<PassThroughOperator>(node));
   };
 
   HashJoinBridgeMap bridges;
-  std::function<void(const core::PlanNodePtr &)> collectJoins =
-      [&](const core::PlanNodePtr &node) {
-        if (!node) {
-          return;
-        }
-        for (const auto &source : node->sources()) {
-          collectJoins(source);
-        }
-        if (auto join =
-                std::dynamic_pointer_cast<const core::HashJoinNode>(node)) {
-          if (bridges.find(join->id()) == bridges.end()) {
-            bridges.emplace(join->id(), std::make_shared<HashJoinBridge>());
-          }
-        }
-      };
+  std::function<void(const core::PlanNodePtr &)> collectJoins = [&](const core::PlanNodePtr &node) {
+    if (!node) {
+      return;
+    }
+    for (const auto &source : node->sources()) {
+      collectJoins(source);
+    }
+    if (auto join = std::dynamic_pointer_cast<const core::HashJoinNode>(node)) {
+      if (bridges.find(join->id()) == bridges.end()) {
+        bridges.emplace(join->id(), std::make_shared<HashJoinBridge>());
+      }
+    }
+  };
 
   collectJoins(plan_);
 
@@ -445,8 +378,7 @@ std::vector<RowVectorPtr> Task::run() {
   LocalPlanner::plan(plan_, &bridges, &driverFactories, maxDrivers_);
 
   for (auto &factory : driverFactories) {
-    if (!factory->planNodes.empty() &&
-        factory->planNodes.back()->id() == plan_->id()) {
+    if (!factory->planNodes.empty() && factory->planNodes.back()->id() == plan_->id()) {
       factory->outputPipeline = true;
     }
     for (const auto &node : factory->planNodes) {
@@ -492,11 +424,9 @@ std::vector<RowVectorPtr> Task::run() {
   };
 
   for (size_t i = 0; i < driverFactories.size(); ++i) {
-    std::cout << "[Task] Pipeline " << i
-              << " drivers=" << driverFactories[i]->numDrivers
+    std::cout << "[Task] Pipeline " << i << " drivers=" << driverFactories[i]->numDrivers
               << (driverFactories[i]->outputPipeline ? " output" : "")
-              << (driverFactories[i]->inputDriver ? " input" : "")
-              << " operators: [";
+              << (driverFactories[i]->inputDriver ? " input" : "") << " operators: [";
     bool first = true;
     for (const auto &node : driverFactories[i]->planNodes) {
       if (!first) {
@@ -505,8 +435,7 @@ std::vector<RowVectorPtr> Task::run() {
       std::cout << opNameForNode(node, false);
       first = false;
     }
-    if (driverFactories[i]->operatorSupplier &&
-        driverFactories[i]->consumerNode) {
+    if (driverFactories[i]->operatorSupplier && driverFactories[i]->consumerNode) {
       if (!first) {
         std::cout << " -> ";
       }
@@ -519,12 +448,9 @@ std::vector<RowVectorPtr> Task::run() {
   std::unordered_map<std::string, size_t> exchangeConsumers;
   for (size_t i = 0; i < driverFactories.size(); ++i) {
     for (const auto &node : driverFactories[i]->planNodes) {
-      if (auto localPartition =
-              std::dynamic_pointer_cast<const core::LocalPartitionNode>(node)) {
+      if (auto localPartition = std::dynamic_pointer_cast<const core::LocalPartitionNode>(node)) {
         exchangeProducers.emplace(localPartition->exchangeId(), i);
-      } else if (auto localMerge =
-                     std::dynamic_pointer_cast<const core::LocalMergeNode>(
-                         node)) {
+      } else if (auto localMerge = std::dynamic_pointer_cast<const core::LocalMergeNode>(node)) {
         exchangeConsumers.emplace(localMerge->exchangeId(), i);
       }
     }
@@ -532,16 +458,13 @@ std::vector<RowVectorPtr> Task::run() {
 
   ExchangeQueueMap exchanges;
   for (const auto &[exchangeId, pipelineId] : exchangeProducers) {
-    exchanges.emplace(exchangeId, std::make_shared<LocalExchangeQueue>(
-                                      driverFactories[pipelineId]->numDrivers));
+    exchanges.emplace(exchangeId, std::make_shared<LocalExchangeQueue>(driverFactories[pipelineId]->numDrivers));
   }
 
   std::unordered_map<core::PlanNodeId, size_t> buildPipelines;
   for (size_t i = 0; i < driverFactories.size(); ++i) {
     const auto &factory = driverFactories[i];
-    if (factory->operatorSupplier &&
-        std::dynamic_pointer_cast<const core::HashJoinNode>(
-            factory->consumerNode)) {
+    if (factory->operatorSupplier && std::dynamic_pointer_cast<const core::HashJoinNode>(factory->consumerNode)) {
       buildPipelines.emplace(factory->consumerNode->id(), i);
     }
   }
@@ -551,8 +474,7 @@ std::vector<RowVectorPtr> Task::run() {
   for (size_t i = 0; i < driverFactories.size(); ++i) {
     for (const auto &joinId : driverFactories[i]->probeJoinIds) {
       auto it = buildPipelines.find(joinId);
-      VELOX_CHECK(it != buildPipelines.end(),
-                  "Missing build pipeline for join");
+      VELOX_CHECK(it != buildPipelines.end(), "Missing build pipeline for join");
       dependents[it->second].push_back(i);
       indegree[i]++;
     }
@@ -570,8 +492,7 @@ std::vector<RowVectorPtr> Task::run() {
     std::cout << "[Task] Pipeline " << i << " depends on:";
     bool hasDeps = false;
     for (size_t j = 0; j < dependents.size(); ++j) {
-      if (std::find(dependents[j].begin(), dependents[j].end(), i) !=
-          dependents[j].end()) {
+      if (std::find(dependents[j].begin(), dependents[j].end(), i) != dependents[j].end()) {
         std::cout << " " << j;
         hasDeps = true;
       }
@@ -611,17 +532,13 @@ std::vector<RowVectorPtr> Task::run() {
 
     auto done = std::make_shared<std::latch>(factory->numDrivers);
     for (size_t driverId = 0; driverId < factory->numDrivers; ++driverId) {
-      auto execCtx =
-          std::make_shared<core::ExecCtx>(queryCtx_->pool(), queryCtx_.get());
+      auto execCtx = std::make_shared<core::ExecCtx>(queryCtx_->pool(), queryCtx_.get());
       auto driver = driverFactories[pipelineId]->createDriver(
-          execCtx.get(),
-          [&](const core::PlanNodePtr &node, core::ExecCtx *ctx) {
-            return makeOperatorForNode(node, ctx, sourceStates, bridges,
-                                       exchanges);
+          execCtx.get(), [&](const core::PlanNodePtr &node, core::ExecCtx *ctx) {
+            return makeOperatorForNode(node, ctx, sourceStates, bridges, exchanges);
           });
       driver->setCancelCheck([&]() { return shouldStop(); });
-      enqueue(executor, std::move(driver), std::move(execCtx),
-              driverFactories[pipelineId]->outputPipeline, &results,
+      enqueue(executor, std::move(driver), std::move(execCtx), driverFactories[pipelineId]->outputPipeline, &results,
               &resultsMutex, done);
     }
 

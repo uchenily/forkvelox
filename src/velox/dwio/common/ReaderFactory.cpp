@@ -21,8 +21,7 @@ ReaderFactory *getReaderFactory(FileFormat format) {
   return it->second.get();
 }
 
-void registerReaderFactory(FileFormat format,
-                           std::unique_ptr<ReaderFactory> factory) {
+void registerReaderFactory(FileFormat format, std::unique_ptr<ReaderFactory> factory) {
   registry()[format] = std::move(factory);
 }
 

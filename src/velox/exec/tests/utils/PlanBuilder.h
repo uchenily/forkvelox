@@ -12,8 +12,7 @@ namespace facebook::velox::exec::test {
 
 class PlanBuilder {
 public:
-  PlanBuilder(std::shared_ptr<core::PlanNodeIdGenerator> generator =
-                  std::make_shared<core::PlanNodeIdGenerator>())
+  PlanBuilder(std::shared_ptr<core::PlanNodeIdGenerator> generator = std::make_shared<core::PlanNodeIdGenerator>())
       : generator_(generator) {}
 
   PlanBuilder &values(const std::vector<RowVectorPtr> &values) {
@@ -21,85 +20,68 @@ public:
     return *this;
   }
 
-  PlanBuilder &singleAggregation(
-      const std::vector<std::string> &groupingKeys,
-      const std::vector<std::string> &aggregates,
-      core::AggregationNode::Step step = core::AggregationNode::Step::kSingle) {
-    root_ = std::make_shared<core::AggregationNode>(
-        generator_->next(), root_, groupingKeys, aggregates, step);
+  PlanBuilder &singleAggregation(const std::vector<std::string> &groupingKeys,
+                                 const std::vector<std::string> &aggregates,
+                                 core::AggregationNode::Step step = core::AggregationNode::Step::kSingle) {
+    root_ = std::make_shared<core::AggregationNode>(generator_->next(), root_, groupingKeys, aggregates, step);
     return *this;
   }
 
   PlanBuilder &partialAggregation(const std::vector<std::string> &groupingKeys,
                                   const std::vector<std::string> &aggregates) {
-    return singleAggregation(groupingKeys, aggregates,
-                             core::AggregationNode::Step::kPartial);
+    return singleAggregation(groupingKeys, aggregates, core::AggregationNode::Step::kPartial);
   }
 
-  PlanBuilder &
-  intermediateAggregation(const std::vector<std::string> &groupingKeys,
-                          const std::vector<std::string> &aggregates) {
-    return singleAggregation(groupingKeys, aggregates,
-                             core::AggregationNode::Step::kIntermediate);
+  PlanBuilder &intermediateAggregation(const std::vector<std::string> &groupingKeys,
+                                       const std::vector<std::string> &aggregates) {
+    return singleAggregation(groupingKeys, aggregates, core::AggregationNode::Step::kIntermediate);
   }
 
   PlanBuilder &finalAggregation(const std::vector<std::string> &groupingKeys,
                                 const std::vector<std::string> &aggregates) {
-    return singleAggregation(groupingKeys, aggregates,
-                             core::AggregationNode::Step::kFinal);
+    return singleAggregation(groupingKeys, aggregates, core::AggregationNode::Step::kFinal);
   }
 
   PlanBuilder &orderBy(const std::vector<std::string> &keys, bool isPartial) {
-    root_ = std::make_shared<core::OrderByNode>(generator_->next(), root_, keys,
-                                                isPartial);
+    root_ = std::make_shared<core::OrderByNode>(generator_->next(), root_, keys, isPartial);
     return *this;
   }
 
   PlanBuilder &tableWrite(const std::string &path) {
-    root_ =
-        std::make_shared<core::TableWriteNode>(generator_->next(), root_, path);
+    root_ = std::make_shared<core::TableWriteNode>(generator_->next(), root_, path);
     return *this;
   }
 
-  PlanBuilder &topN(const std::vector<std::string> &keys, int count,
-                    bool isPartial) {
-    root_ = std::make_shared<core::TopNNode>(generator_->next(), root_, count,
-                                             keys);
+  PlanBuilder &topN(const std::vector<std::string> &keys, int count, bool isPartial) {
+    root_ = std::make_shared<core::TopNNode>(generator_->next(), root_, count, keys);
     return *this;
   }
 
   PlanBuilder &filter(const std::string &expr) {
     parse::DuckSqlExpressionsParser parser;
     auto typedExpr = parser.parseExpr(expr);
-    root_ = std::make_shared<core::FilterNode>(generator_->next(), root_,
-                                               typedExpr);
+    root_ = std::make_shared<core::FilterNode>(generator_->next(), root_, typedExpr);
     return *this;
   }
 
   PlanBuilder &tableScan(const RowTypePtr &rowType, const std::string &path) {
-    root_ =
-        std::make_shared<core::FileScanNode>(generator_->next(), rowType, path);
+    root_ = std::make_shared<core::FileScanNode>(generator_->next(), rowType, path);
     return *this;
   }
 
   PlanBuilder &localPartition(const std::string &exchangeId) {
-    root_ = std::make_shared<core::LocalPartitionNode>(generator_->next(),
-                                                       root_, exchangeId);
+    root_ = std::make_shared<core::LocalPartitionNode>(generator_->next(), root_, exchangeId);
     return *this;
   }
 
   PlanBuilder &localMerge(const std::string &exchangeId) {
-    root_ = std::make_shared<core::LocalMergeNode>(generator_->next(), root_,
-                                                   exchangeId);
+    root_ = std::make_shared<core::LocalMergeNode>(generator_->next(), root_, exchangeId);
     return *this;
   }
 
   // Stub for TPCH
-  PlanBuilder &tpchTableScan(tpch::Table table,
-                             std::vector<std::string> columns,
-                             int scaleFactor) {
-    root_ = std::make_shared<core::TableScanNode>(generator_->next(), table,
-                                                  columns);
+  PlanBuilder &tpchTableScan(tpch::Table table, std::vector<std::string> columns, int scaleFactor) {
+    root_ = std::make_shared<core::TableScanNode>(generator_->next(), table, columns);
     return *this;
   }
 
@@ -109,12 +91,10 @@ public:
     return *this;
   }
 
-  PlanBuilder &hashJoin(const std::vector<std::string> &leftKeys,
-                        const std::vector<std::string> &rightKeys,
+  PlanBuilder &hashJoin(const std::vector<std::string> &leftKeys, const std::vector<std::string> &rightKeys,
                         core::PlanNodePtr buildSide, const std::string &filter,
                         const std::vector<std::string> &output) {
-    root_ = std::make_shared<core::HashJoinNode>(generator_->next(), root_,
-                                                 buildSide);
+    root_ = std::make_shared<core::HashJoinNode>(generator_->next(), root_, buildSide);
     return *this;
   }
 
@@ -127,15 +107,12 @@ public:
     return common::DrawableTree::fromTree(tree)->render(title);
   }
 
-  void printPlanTree(std::string_view title = "") const {
-    std::cout << planTree(title);
-  }
+  void printPlanTree(std::string_view title = "") const { std::cout << planTree(title); }
 
   core::PlanNodePtr planNode() { return root_; }
 
 private:
-  static std::shared_ptr<common::Tree>
-  buildPlanTree(const core::PlanNodePtr &node) {
+  static std::shared_ptr<common::Tree> buildPlanTree(const core::PlanNodePtr &node) {
     auto label = node->toString() + "(" + node->id() + ")";
     auto tree = std::make_shared<common::Tree>(std::move(label));
     for (const auto &source : node->sources()) {

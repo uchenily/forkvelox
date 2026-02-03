@@ -5,7 +5,8 @@
 
 namespace folly {
 
-template <typename Iter> class Range {
+template <typename Iter>
+class Range {
 public:
   Range() : start_(), end_() {}
   Range(Iter start, Iter end) : start_(start), end_(end) {}

@@ -34,27 +34,22 @@ public:
     // Create and register a TPC-H connector.
     connector::tpch::TpchConnectorFactory factory;
     auto tpchConnector = factory.newConnector(
-        kTpchConnectorId, std::make_shared<config::ConfigBase>(
-                              std::unordered_map<std::string, std::string>()));
+        kTpchConnectorId, std::make_shared<config::ConfigBase>(std::unordered_map<std::string, std::string>()));
     connector::registerConnector(tpchConnector);
   }
 
   ~VeloxIn10MinDemo() { connector::unregisterConnector(kTpchConnectorId); }
 
   /// Parse SQL expression into a typed expression tree using DuckDB SQL parser.
-  core::TypedExprPtr parseExpression(const std::string &text,
-                                     const RowTypePtr &rowType) {
+  core::TypedExprPtr parseExpression(const std::string &text, const RowTypePtr &rowType) {
     auto untyped = parse::DuckSqlExpressionsParser().parseExpr(text);
     return core::Expressions::inferTypes(untyped, rowType, execCtx_->pool());
   }
 
   /// Compile typed expression tree into an executable ExprSet.
-  std::unique_ptr<exec::ExprSet> compileExpression(const std::string &expr,
-                                                   const RowTypePtr &rowType) {
-    std::vector<core::TypedExprPtr> expressions = {
-        parseExpression(expr, rowType)};
-    return std::make_unique<exec::ExprSet>(std::move(expressions),
-                                           execCtx_.get());
+  std::unique_ptr<exec::ExprSet> compileExpression(const std::string &expr, const RowTypePtr &rowType) {
+    std::vector<core::TypedExprPtr> expressions = {parseExpression(expr, rowType)};
+    return std::make_unique<exec::ExprSet>(std::move(expressions), execCtx_.get());
   }
 
   /// Evaluate an expression on one batch of data.
@@ -69,18 +64,16 @@ public:
 
   /// Make TPC-H split to add to TableScan node.
   exec::Split makeTpchSplit() const {
-    return exec::Split(std::make_shared<connector::tpch::TpchConnectorSplit>(
-        kTpchConnectorId, /*cacheable=*/true, 1, 0));
+    return exec::Split(
+        std::make_shared<connector::tpch::TpchConnectorSplit>(kTpchConnectorId, /*cacheable=*/true, 1, 0));
   }
 
   /// Run the demo.
   void run();
 
   std::shared_ptr<folly::Executor> executor_{
-      std::make_shared<folly::CPUThreadPoolExecutor>(
-          folly::hardware_concurrency())};
-  std::shared_ptr<core::QueryCtx> queryCtx_{
-      core::QueryCtx::create(executor_.get())};
+      std::make_shared<folly::CPUThreadPoolExecutor>(folly::hardware_concurrency())};
+  std::shared_ptr<core::QueryCtx> queryCtx_{core::QueryCtx::create(executor_.get())};
   // Note: VectorTestBase initializes execCtx_, but here we override or use it.
   // VectorTestBase uses queryCtx_ from itself.
   // The demo defines its own execCtx_ which shadows VectorTestBase's?
@@ -89,8 +82,7 @@ public:
   // I should remove the definition here if I want to use the one from Base,
   // OR I should conform to this definition.
   // The demo code provided has:
-  std::unique_ptr<core::ExecCtx> execCtx_{
-      std::make_unique<core::ExecCtx>(pool_.get(), queryCtx_.get())};
+  std::unique_ptr<core::ExecCtx> execCtx_{std::make_unique<core::ExecCtx>(pool_.get(), queryCtx_.get())};
   // pool_ comes from VectorTestBase.
 };
 
@@ -99,14 +91,11 @@ void VeloxIn10MinDemo::run() {
   auto a = makeFlatVector<int64_t>({0, 1, 2, 3, 4, 5, 6});
   auto b = makeFlatVector<int64_t>({0, 5, 10, 15, 20, 25, 30});
   auto dow =
-      makeFlatVector<std::string>({"monday", "tuesday", "wednesday", "thursday",
-                                   "friday", "saturday", "sunday"});
+      makeFlatVector<std::string>({"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"});
 
   auto data = makeRowVector({"a", "b", "dow"}, {a, b, dow});
 
-  std::cout << std::endl
-            << "> vectors a, b, dow: \n"
-            << data->toString() << std::endl;
+  std::cout << std::endl << "> vectors a, b, dow: \n" << data->toString() << std::endl;
   std::cout << data->toString() << std::endl;
 
   // Expressions.
@@ -141,26 +130,18 @@ void VeloxIn10MinDemo::run() {
 
   auto abd = makeRowVector({"a", "b", "d"}, {a, b, d});
 
-  std::cout << std::endl
-            << "> a, b, 2 * a + b % 3: \n"
-            << abd->toString() << std::endl;
+  std::cout << std::endl << "> a, b, 2 * a + b % 3: \n" << abd->toString() << std::endl;
   std::cout << abd->toString() << std::endl;
 
   // Let's transform 'dow' column into a 3-letter prefix with first letter
   // capitalized, e.g. Mon, Tue, etc.
-  exprSet =
-      compileExpression("concat(upper(substr(dow, 1, 1)), substr(dow, 2, 2))",
-                        asRowType(data->type()));
+  exprSet = compileExpression("concat(upper(substr(dow, 1, 1)), substr(dow, 2, 2))", asRowType(data->type()));
 
-  std::cout << std::endl
-            << "> '3-letter prefix with first letter capitalized' expression:"
-            << std::endl;
+  std::cout << std::endl << "> '3-letter prefix with first letter capitalized' expression:" << std::endl;
   std::cout << exprSet->toString(false /*compact*/) << std::endl;
 
   auto shortDow = evaluate(*exprSet, data);
-  std::cout << std::endl
-            << "> short days of week: \n"
-            << shortDow->toString() << std::endl;
+  std::cout << std::endl << "> short days of week: \n" << shortDow->toString() << std::endl;
 
   // Queries.
 
@@ -169,16 +150,13 @@ void VeloxIn10MinDemo::run() {
 
   auto plan = PlanBuilder()
                   .values({data})
-                  .singleAggregation({}, {"sum(a) AS sum_a", "avg(a) AS avg_a",
-                                          "sum(b) AS sum_b", "avg(b) AS avg_b"})
+                  .singleAggregation({}, {"sum(a) AS sum_a", "avg(a) AS avg_a", "sum(b) AS sum_b", "avg(b) AS avg_b"})
                   .planNode();
 
   auto sumAvg = AssertQueryBuilder(plan).copyResults(pool());
 
   if (sumAvg) {
-    std::cout << std::endl
-              << "> sum and average for a and b: \n"
-              << sumAvg->toString() << std::endl;
+    std::cout << std::endl << "> sum and average for a and b: \n" << sumAvg->toString() << std::endl;
   }
 
   // Now, let's sort by 'a' descending.
@@ -188,9 +166,7 @@ void VeloxIn10MinDemo::run() {
   auto sorted = AssertQueryBuilder(plan).copyResults(pool());
 
   if (sorted) {
-    std::cout << std::endl
-              << "> data sorted on 'a' in descending order: \n"
-              << sorted->toString() << std::endl;
+    std::cout << std::endl << "> data sorted on 'a' in descending order: \n" << sorted->toString() << std::endl;
   }
 
   // And take top 3 rows.
@@ -200,9 +176,7 @@ void VeloxIn10MinDemo::run() {
   auto top3 = AssertQueryBuilder(plan).copyResults(pool());
 
   if (top3) {
-    std::cout << std::endl
-              << "> top 3 rows as sorted on 'a' in descending order: \n"
-              << top3->toString() << std::endl;
+    std::cout << std::endl << "> top 3 rows as sorted on 'a' in descending order: \n" << top3->toString() << std::endl;
   }
 
   // We can also filter rows that have even values of 'a'.
@@ -221,35 +195,23 @@ void VeloxIn10MinDemo::run() {
   // nation table and print first 10 rows.
 
   // nations
-  plan = PlanBuilder()
-             .tpchTableScan(tpch::Table::TBL_NATION, {"n_regionkey", "n_name"},
-                            1 /*scaleFactor*/)
-             .planNode();
+  plan = PlanBuilder().tpchTableScan(tpch::Table::TBL_NATION, {"n_regionkey", "n_name"}, 1 /*scaleFactor*/).planNode();
 
-  auto nations =
-      AssertQueryBuilder(plan).split(makeTpchSplit()).copyResults(pool());
+  auto nations = AssertQueryBuilder(plan).split(makeTpchSplit()).copyResults(pool());
 
   if (nations) {
-    std::cout << std::endl
-              << "> TPC-H nation table: \n"
-              << nations->toString() << std::endl;
+    std::cout << std::endl << "> TPC-H nation table: \n" << nations->toString() << std::endl;
   } else {
     std::cout << "> TPC-H nation table is empty!" << std::endl;
   }
 
   // regions
-  plan = PlanBuilder()
-             .tpchTableScan(tpch::Table::TBL_REGION, {"r_regionkey", "r_name"},
-                            1 /*scaleFactor*/)
-             .planNode();
+  plan = PlanBuilder().tpchTableScan(tpch::Table::TBL_REGION, {"r_regionkey", "r_name"}, 1 /*scaleFactor*/).planNode();
 
-  auto regions =
-      AssertQueryBuilder(plan).split(makeTpchSplit()).copyResults(pool());
+  auto regions = AssertQueryBuilder(plan).split(makeTpchSplit()).copyResults(pool());
 
   if (regions) {
-    std::cout << std::endl
-              << "> TPC-H region table: \n"
-              << regions->toString() << std::endl;
+    std::cout << std::endl << "> TPC-H region table: \n" << regions->toString() << std::endl;
   } else {
     std::cout << "> TPC-H region table is empty!" << std::endl;
   }
@@ -266,14 +228,11 @@ void VeloxIn10MinDemo::run() {
   core::PlanNodeId nationScanId;
   core::PlanNodeId regionScanId;
   auto builder = PlanBuilder(planNodeIdGenerator)
-                     .tpchTableScan(tpch::Table::TBL_NATION, {"n_regionkey"},
-                                    1 /*scaleFactor*/)
+                     .tpchTableScan(tpch::Table::TBL_NATION, {"n_regionkey"}, 1 /*scaleFactor*/)
                      .capturePlanNodeId(nationScanId)
                      .hashJoin({"n_regionkey"}, {"r_regionkey"},
                                PlanBuilder(planNodeIdGenerator)
-                                   .tpchTableScan(tpch::Table::TBL_REGION,
-                                                  {"r_regionkey", "r_name"},
-                                                  1 /*scaleFactor*/)
+                                   .tpchTableScan(tpch::Table::TBL_REGION, {"r_regionkey", "r_name"}, 1 /*scaleFactor*/)
                                    .capturePlanNodeId(regionScanId)
                                    .planNode(),
                                "", // extra filter
@@ -290,9 +249,7 @@ void VeloxIn10MinDemo::run() {
                        .copyResults(pool());
 
   if (nationCnt) {
-    std::cout << std::endl
-              << "> number of nations per region in TPC-H: \n"
-              << nationCnt->toString() << std::endl;
+    std::cout << std::endl << "> number of nations per region in TPC-H: \n" << nationCnt->toString() << std::endl;
   }
 }
 

@@ -12,15 +12,12 @@ namespace facebook::velox::exec {
 
 class Expr {
 public:
-  Expr(std::shared_ptr<const Type> type,
-       std::vector<std::shared_ptr<Expr>> inputs, std::string name)
-      : type_(std::move(type)), inputs_(std::move(inputs)),
-        name_(std::move(name)) {}
+  Expr(std::shared_ptr<const Type> type, std::vector<std::shared_ptr<Expr>> inputs, std::string name)
+      : type_(std::move(type)), inputs_(std::move(inputs)), name_(std::move(name)) {}
 
   virtual ~Expr() = default;
 
-  virtual void eval(const SelectivityVector &rows, EvalCtx &context,
-                    VectorPtr &result) = 0;
+  virtual void eval(const SelectivityVector &rows, EvalCtx &context, VectorPtr &result) = 0;
 
   std::shared_ptr<const Type> type() const { return type_; }
   const std::vector<std::shared_ptr<Expr>> &inputs() const { return inputs_; }
@@ -50,12 +47,10 @@ using ExprPtr = std::shared_ptr<Expr>;
 
 class ExprSet {
 public:
-  ExprSet(std::vector<std::shared_ptr<core::ITypedExpr>> sources,
-          core::ExecCtx *execCtx);
+  ExprSet(std::vector<std::shared_ptr<core::ITypedExpr>> sources, core::ExecCtx *execCtx);
   ~ExprSet();
 
-  void eval(const SelectivityVector &rows, EvalCtx &context,
-            std::vector<VectorPtr> &result);
+  void eval(const SelectivityVector &rows, EvalCtx &context, std::vector<VectorPtr> &result);
 
   std::string toString(bool compact = true) const;
 

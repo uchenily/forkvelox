@@ -20,8 +20,7 @@ enum class FileFormat {
 
 class BufferedInput {
 public:
-  BufferedInput(std::shared_ptr<ReadFile> file, memory::MemoryPool *pool)
-      : file_(std::move(file)), pool_(pool) {}
+  BufferedInput(std::shared_ptr<ReadFile> file, memory::MemoryPool *pool) : file_(std::move(file)), pool_(pool) {}
 
   std::string path() const { return file_->getName(); }
   const std::shared_ptr<ReadFile> &file() const { return file_; }
@@ -62,18 +61,12 @@ struct FilterCondition {
 
 class RowReaderOptions {
 public:
-  void addFilter(FilterCondition filter) {
-    filters_.push_back(std::move(filter));
-  }
+  void addFilter(FilterCondition filter) { filters_.push_back(std::move(filter)); }
 
-  void setProjectedColumns(std::vector<std::string> columns) {
-    projectedColumns_ = std::move(columns);
-  }
+  void setProjectedColumns(std::vector<std::string> columns) { projectedColumns_ = std::move(columns); }
 
   const std::vector<FilterCondition> &filters() const { return filters_; }
-  const std::vector<std::string> &projectedColumns() const {
-    return projectedColumns_;
-  }
+  const std::vector<std::string> &projectedColumns() const { return projectedColumns_; }
   bool hasProjection() const { return !projectedColumns_.empty(); }
 
 private:
@@ -90,16 +83,13 @@ public:
 class Reader {
 public:
   virtual ~Reader() = default;
-  virtual std::unique_ptr<RowReader>
-  createRowReader(const RowReaderOptions &options) = 0;
+  virtual std::unique_ptr<RowReader> createRowReader(const RowReaderOptions &options) = 0;
 };
 
 class ReaderFactory {
 public:
   virtual ~ReaderFactory() = default;
-  virtual std::unique_ptr<Reader>
-  createReader(std::unique_ptr<BufferedInput> input,
-               const ReaderOptions &options) = 0;
+  virtual std::unique_ptr<Reader> createReader(std::unique_ptr<BufferedInput> input, const ReaderOptions &options) = 0;
 };
 
 } // namespace facebook::velox::dwio::common

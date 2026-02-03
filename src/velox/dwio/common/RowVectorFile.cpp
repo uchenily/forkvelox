@@ -26,10 +26,8 @@ void ensureFileSystemRegistered() {
 
 std::string trim(std::string value) {
   auto notSpace = [](unsigned char c) { return !std::isspace(c); };
-  value.erase(value.begin(),
-              std::find_if(value.begin(), value.end(), notSpace));
-  value.erase(std::find_if(value.rbegin(), value.rend(), notSpace).base(),
-              value.end());
+  value.erase(value.begin(), std::find_if(value.begin(), value.end(), notSpace));
+  value.erase(std::find_if(value.rbegin(), value.rend(), notSpace).base(), value.end());
   return value;
 }
 
@@ -56,8 +54,7 @@ TypePtr parseType(const std::string &name) {
   VELOX_FAIL("Unsupported type: {}", name);
 }
 
-void writeInternal(const RowVector &data, const std::string &path,
-                   bool includeHeader, bool append) {
+void writeInternal(const RowVector &data, const std::string &path, bool includeHeader, bool append) {
   ensureFileSystemRegistered();
   auto fs = filesystems::getFileSystem(path, nullptr);
 
@@ -103,17 +100,13 @@ void writeInternal(const RowVector &data, const std::string &path,
 
 } // namespace
 
-void RowVectorFile::write(const RowVector &data, const std::string &path) {
-  writeInternal(data, path, true, false);
-}
+void RowVectorFile::write(const RowVector &data, const std::string &path) { writeInternal(data, path, true, false); }
 
-void RowVectorFile::append(const RowVector &data, const std::string &path,
-                           bool includeHeader) {
+void RowVectorFile::append(const RowVector &data, const std::string &path, bool includeHeader) {
   writeInternal(data, path, includeHeader, !includeHeader);
 }
 
-RowVectorPtr RowVectorFile::read(memory::MemoryPool *pool,
-                                 const std::string &path) {
+RowVectorPtr RowVectorFile::read(memory::MemoryPool *pool, const std::string &path) {
   ensureFileSystemRegistered();
   auto fs = filesystems::getFileSystem(path, nullptr);
   auto file = fs->openFileForRead(path);
@@ -125,8 +118,7 @@ RowVectorPtr RowVectorFile::read(memory::MemoryPool *pool,
 
   std::string line;
   VELOX_CHECK(std::getline(in, line), "Empty file: {}", path);
-  VELOX_CHECK(line.rfind("# schema:", 0) == 0, "Missing schema header in {}",
-              path);
+  VELOX_CHECK(line.rfind("# schema:", 0) == 0, "Missing schema header in {}", path);
 
   std::string schema = trim(line.substr(std::string("# schema:").size()));
   auto fields = split(schema, ',');
@@ -198,22 +190,15 @@ RowVectorPtr RowVectorFile::read(memory::MemoryPool *pool,
     const auto &type = types[i];
     const auto &column = columns[i];
     if (column.kind == TypeKind::BIGINT) {
-      auto buffer =
-          AlignedBuffer::allocate(column.ints.size() * sizeof(int64_t), pool);
-      std::memcpy(buffer->as_mutable_uint8_t(), column.ints.data(),
-                  column.ints.size() * sizeof(int64_t));
-      children.push_back(std::make_shared<FlatVector<int64_t>>(
-          pool, type, nullptr, column.ints.size(), buffer));
+      auto buffer = AlignedBuffer::allocate(column.ints.size() * sizeof(int64_t), pool);
+      std::memcpy(buffer->as_mutable_uint8_t(), column.ints.data(), column.ints.size() * sizeof(int64_t));
+      children.push_back(std::make_shared<FlatVector<int64_t>>(pool, type, nullptr, column.ints.size(), buffer));
     } else if (column.kind == TypeKind::INTEGER) {
-      auto buffer =
-          AlignedBuffer::allocate(column.int32s.size() * sizeof(int32_t), pool);
-      std::memcpy(buffer->as_mutable_uint8_t(), column.int32s.data(),
-                  column.int32s.size() * sizeof(int32_t));
-      children.push_back(std::make_shared<FlatVector<int32_t>>(
-          pool, type, nullptr, column.int32s.size(), buffer));
+      auto buffer = AlignedBuffer::allocate(column.int32s.size() * sizeof(int32_t), pool);
+      std::memcpy(buffer->as_mutable_uint8_t(), column.int32s.data(), column.int32s.size() * sizeof(int32_t));
+      children.push_back(std::make_shared<FlatVector<int32_t>>(pool, type, nullptr, column.int32s.size(), buffer));
     } else if (column.kind == TypeKind::VARCHAR) {
-      auto values = AlignedBuffer::allocate(
-          column.strings.size() * sizeof(StringView), pool);
+      auto values = AlignedBuffer::allocate(column.strings.size() * sizeof(StringView), pool);
       auto *rawValues = values->asMutable<StringView>();
       size_t totalSize = 0;
       for (const auto &value : column.strings) {
@@ -228,8 +213,7 @@ RowVectorPtr RowVectorFile::read(memory::MemoryPool *pool,
         rawValues[row] = StringView(cursor + offset, value.size());
         offset += value.size();
       }
-      auto vector = std::make_shared<FlatVector<StringView>>(
-          pool, type, nullptr, column.strings.size(), values);
+      auto vector = std::make_shared<FlatVector<StringView>>(pool, type, nullptr, column.strings.size(), values);
       vector->addStringBuffer(dataBuffer);
       children.push_back(vector);
     } else {
@@ -238,8 +222,7 @@ RowVectorPtr RowVectorFile::read(memory::MemoryPool *pool,
   }
 
   auto rowType = ROW(std::move(names), std::move(types));
-  return std::make_shared<RowVector>(pool, rowType, nullptr, rowCount,
-                                     std::move(children));
+  return std::make_shared<RowVector>(pool, rowType, nullptr, rowCount, std::move(children));
 }
 
 } // namespace facebook::velox::dwio::common

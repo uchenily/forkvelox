@@ -18,7 +18,8 @@ public:
 };
 
 // Stub
-template <typename T> struct Synchronized {
+template <typename T>
+struct Synchronized {
   T obj;
   T &wlock() { return obj; }
   const T &rlock() const { return obj; }

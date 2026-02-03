@@ -24,19 +24,15 @@ int main() {
   memory::initializeMemoryManager(memory::MemoryManager::Options{});
   auto pool = memory::defaultMemoryPool();
 
-  auto intValues =
-      AlignedBuffer::allocate(numRows * sizeof(int64_t), pool.get());
+  auto intValues = AlignedBuffer::allocate(numRows * sizeof(int64_t), pool.get());
   auto *rawInts = intValues->asMutable<int64_t>();
   for (int i = 0; i < numRows; ++i) {
     rawInts[i] = serial();
   }
-  auto intVector = std::make_shared<FlatVector<int64_t>>(
-      pool.get(), BIGINT(), nullptr, numRows, intValues);
+  auto intVector = std::make_shared<FlatVector<int64_t>>(pool.get(), BIGINT(), nullptr, numRows, intValues);
 
-  std::vector<std::string> labels{"zero", "one",  "two", "three",
-                                  "four", "five", "six", "seven"};
-  auto stringValues =
-      AlignedBuffer::allocate(numRows * sizeof(StringView), pool.get());
+  std::vector<std::string> labels{"zero", "one", "two", "three", "four", "five", "six", "seven"};
+  auto stringValues = AlignedBuffer::allocate(numRows * sizeof(StringView), pool.get());
   auto *rawStrings = stringValues->asMutable<StringView>();
   size_t totalLen = 0;
   for (const auto &label : labels) {
@@ -51,28 +47,23 @@ int main() {
     offset += labels[i].size();
   }
 
-  auto stringNulls = AlignedBuffer::allocate(
-      bits::nwords(numRows) * sizeof(uint64_t), pool.get());
+  auto stringNulls = AlignedBuffer::allocate(bits::nwords(numRows) * sizeof(uint64_t), pool.get());
   std::memset(stringNulls->as_mutable_uint8_t(), 0, stringNulls->capacity());
   bits::setBit(stringNulls->asMutable<uint64_t>(), 5, true);
 
-  auto stringVector = std::make_shared<FlatVector<StringView>>(
-      pool.get(), VARCHAR(), stringNulls, numRows, stringValues,
-      std::vector<BufferPtr>{dataBuffer});
+  auto stringVector = std::make_shared<FlatVector<StringView>>(pool.get(), VARCHAR(), stringNulls, numRows,
+                                                               stringValues, std::vector<BufferPtr>{dataBuffer});
 
-  auto rowVector = std::make_shared<RowVector>(
-      pool.get(), ROW({"id", "label"}, {BIGINT(), VARCHAR()}), nullptr, numRows,
-      std::vector<VectorPtr>{intVector, stringVector});
+  auto rowVector = std::make_shared<RowVector>(pool.get(), ROW({"id", "label"}, {BIGINT(), VARCHAR()}), nullptr,
+                                               numRows, std::vector<VectorPtr>{intVector, stringVector});
 
   std::cout << "RowVector content:" << std::endl;
   for (vector_size_t row = 0; row < rowVector->size(); ++row) {
     std::cout << rowVector->toString(row) << std::endl;
   }
 
-  auto readInts =
-      std::static_pointer_cast<FlatVector<int64_t>>(rowVector->childAt(0));
-  auto readStrings =
-      std::static_pointer_cast<FlatVector<StringView>>(rowVector->childAt(1));
+  auto readInts = std::static_pointer_cast<FlatVector<int64_t>>(rowVector->childAt(0));
+  auto readStrings = std::static_pointer_cast<FlatVector<StringView>>(rowVector->childAt(1));
 
   std::cout << "Reading rows:" << std::endl;
   for (vector_size_t row = 0; row < rowVector->size(); ++row) {

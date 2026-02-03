@@ -4,7 +4,8 @@
 
 namespace folly {
 
-template <typename T> class SemiFuture {
+template <typename T>
+class SemiFuture {
 public:
   SemiFuture(T val) : val_(val), has_val_(true) {}
   SemiFuture(std::exception_ptr e) : ex_(e), has_val_(false) {}
@@ -30,15 +31,18 @@ private:
   bool has_val_;
 };
 
-template <typename T> SemiFuture<T> makeSemiFuture(T val) {
+template <typename T>
+SemiFuture<T> makeSemiFuture(T val) {
   return SemiFuture<T>(val);
 }
 
-template <typename T> SemiFuture<T> makeSemiFuture(std::exception e) {
+template <typename T>
+SemiFuture<T> makeSemiFuture(std::exception e) {
   return SemiFuture<T>(std::make_exception_ptr(e));
 }
 
-template <typename T> struct Promise {
+template <typename T>
+struct Promise {
   void setValue(T val) {}
   void setException(std::exception_ptr e) {}
   void setTry(typename SemiFuture<T>::Try t) {}

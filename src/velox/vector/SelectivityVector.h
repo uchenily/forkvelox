@@ -13,17 +13,14 @@ using vector_size_t = int32_t;
 
 class SelectivityVector {
 public:
-  SelectivityVector(vector_size_t size, bool allSelected = true)
-      : size_(size), allSelected_(allSelected) {
+  SelectivityVector(vector_size_t size, bool allSelected = true) : size_(size), allSelected_(allSelected) {
     bits_.resize(bits::nwords(size), allSelected ? ~0ULL : 0);
   }
 
   vector_size_t size() const { return size_; }
   bool isAllSelected() const { return allSelected_; }
 
-  bool isValid(vector_size_t index) const {
-    return bits::isBitSet(bits_.data(), index);
-  }
+  bool isValid(vector_size_t index) const { return bits::isBitSet(bits_.data(), index); }
 
   void setValid(vector_size_t index, bool valid) {
     bits::setBit(bits_.data(), index, valid);
@@ -63,7 +60,8 @@ public:
     return false;
   }
 
-  template <typename Callable> void applyToSelected(Callable func) const {
+  template <typename Callable>
+  void applyToSelected(Callable func) const {
     for (vector_size_t i = 0; i < size_; ++i) {
       if (isValid(i)) {
         func(i);

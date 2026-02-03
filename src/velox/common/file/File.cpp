@@ -14,18 +14,15 @@ namespace facebook::velox {
 namespace {
 // Stub helper
 template <typename T>
-T getAttribute(const std::unordered_map<std::string, std::string> &attributes,
-               const std::string_view &key, const T &defaultValue) {
+T getAttribute(const std::unordered_map<std::string, std::string> &attributes, const std::string_view &key,
+               const T &defaultValue) {
   return defaultValue;
 }
 
-FOLLY_ALWAYS_INLINE void checkNotClosed(bool closed) {
-  VELOX_CHECK(!closed, "file is closed");
-}
+FOLLY_ALWAYS_INLINE void checkNotClosed(bool closed) { VELOX_CHECK(!closed, "file is closed"); }
 } // namespace
 
-std::string ReadFile::pread(uint64_t offset, uint64_t length,
-                            const FileIoContext &context) const {
+std::string ReadFile::pread(uint64_t offset, uint64_t length, const FileIoContext &context) const {
   std::string buf;
   buf.resize(length);
   auto res = pread(offset, length, buf.data(), context);
@@ -33,8 +30,7 @@ std::string ReadFile::pread(uint64_t offset, uint64_t length,
   return buf;
 }
 
-uint64_t ReadFile::preadv(uint64_t offset,
-                          const std::vector<folly::Range<char *>> &buffers,
+uint64_t ReadFile::preadv(uint64_t offset, const std::vector<folly::Range<char *>> &buffers,
                           const FileIoContext &context) const {
   auto fileSize = size();
   uint64_t numRead = 0;
@@ -52,8 +48,7 @@ uint64_t ReadFile::preadv(uint64_t offset,
   return numRead;
 }
 
-uint64_t ReadFile::preadv(folly::Range<const common::Region *> regions,
-                          folly::Range<folly::IOBuf *> iobufs,
+uint64_t ReadFile::preadv(folly::Range<const common::Region *> regions, folly::Range<folly::IOBuf *> iobufs,
                           const FileIoContext &context) const {
   VELOX_CHECK_EQ(regions.size(), iobufs.size());
   uint64_t length = 0;
@@ -68,16 +63,14 @@ uint64_t ReadFile::preadv(folly::Range<const common::Region *> regions,
   return length;
 }
 
-std::string_view InMemoryReadFile::pread(uint64_t offset, uint64_t length,
-                                         void *buf,
+std::string_view InMemoryReadFile::pread(uint64_t offset, uint64_t length, void *buf,
                                          const FileIoContext &context) const {
   bytesRead_ += length;
   memcpy(buf, file_.data() + offset, length);
   return {static_cast<char *>(buf), length};
 }
 
-std::string InMemoryReadFile::pread(uint64_t offset, uint64_t length,
-                                    const FileIoContext &context) const {
+std::string InMemoryReadFile::pread(uint64_t offset, uint64_t length, const FileIoContext &context) const {
   bytesRead_ += length;
   return std::string(file_.data() + offset, length);
 }
@@ -93,8 +86,7 @@ void InMemoryWriteFile::append(std::unique_ptr<folly::IOBuf> data) {
 
 uint64_t InMemoryWriteFile::size() const { return file_->size(); }
 
-LocalReadFile::LocalReadFile(std::string_view path, folly::Executor *executor,
-                             bool bufferIo)
+LocalReadFile::LocalReadFile(std::string_view path, folly::Executor *executor, bool bufferIo)
     : executor_(executor), path_(path) {
   int32_t flags = O_RDONLY;
 #ifdef __linux__
@@ -104,38 +96,32 @@ LocalReadFile::LocalReadFile(std::string_view path, folly::Executor *executor,
 #endif // linux
   fd_ = open(path_.c_str(), flags);
   if (fd_ < 0) {
-    VELOX_FAIL("open failure in LocalReadFile constructor: {} (errno: {})",
-               path, errno);
+    VELOX_FAIL("open failure in LocalReadFile constructor: {} (errno: {})", path, errno);
   }
   const off_t ret = lseek(fd_, 0, SEEK_END);
   VELOX_CHECK_GE(ret, 0, "lseek failure");
   size_ = ret;
 }
 
-LocalReadFile::LocalReadFile(int32_t fd, folly::Executor *executor)
-    : executor_(executor), fd_(fd) {}
+LocalReadFile::LocalReadFile(int32_t fd, folly::Executor *executor) : executor_(executor), fd_(fd) {}
 
 LocalReadFile::~LocalReadFile() {
   if (fd_ >= 0)
     close(fd_);
 }
 
-void LocalReadFile::preadInternal(uint64_t offset, uint64_t length,
-                                  char *pos) const {
+void LocalReadFile::preadInternal(uint64_t offset, uint64_t length, char *pos) const {
   bytesRead_ += length;
   auto bytesRead = ::pread(fd_, pos, length, offset);
   VELOX_CHECK_EQ(bytesRead, length, "pread failure");
 }
 
-std::string_view LocalReadFile::pread(uint64_t offset, uint64_t length,
-                                      void *buf,
-                                      const FileIoContext &context) const {
+std::string_view LocalReadFile::pread(uint64_t offset, uint64_t length, void *buf, const FileIoContext &context) const {
   preadInternal(offset, length, static_cast<char *>(buf));
   return {static_cast<char *>(buf), length};
 }
 
-uint64_t LocalReadFile::preadv(uint64_t offset,
-                               const std::vector<folly::Range<char *>> &buffers,
+uint64_t LocalReadFile::preadv(uint64_t offset, const std::vector<folly::Range<char *>> &buffers,
                                const FileIoContext &context) const {
   // Simple implementation using pread loop, could use preadv
   uint64_t total = 0;
@@ -147,10 +133,9 @@ uint64_t LocalReadFile::preadv(uint64_t offset,
   return total;
 }
 
-folly::SemiFuture<uint64_t>
-LocalReadFile::preadvAsync(uint64_t offset,
-                           const std::vector<folly::Range<char *>> &buffers,
-                           const FileIoContext &context) const {
+folly::SemiFuture<uint64_t> LocalReadFile::preadvAsync(uint64_t offset,
+                                                       const std::vector<folly::Range<char *>> &buffers,
+                                                       const FileIoContext &context) const {
   // Simplified sync fallback
   return ReadFile::preadvAsync(offset, buffers, context);
 }
@@ -161,15 +146,12 @@ uint64_t LocalReadFile::memoryUsage() const {
   return sizeof(int32_t); // approximate
 }
 
-bool LocalWriteFile::Attributes::cowDisabled(
-    const std::unordered_map<std::string, std::string> &attrs) {
+bool LocalWriteFile::Attributes::cowDisabled(const std::unordered_map<std::string, std::string> &attrs) {
   return false; // Stub
 }
 
-LocalWriteFile::LocalWriteFile(std::string_view path,
-                               bool shouldCreateParentDirectories,
-                               bool shouldThrowOnFileAlreadyExists,
-                               bool bufferIo)
+LocalWriteFile::LocalWriteFile(std::string_view path, bool shouldCreateParentDirectories,
+                               bool shouldThrowOnFileAlreadyExists, bool bufferIo)
     : path_(path) {
 
   // TODO: Create parent dirs
@@ -210,11 +192,9 @@ void LocalWriteFile::append(std::unique_ptr<folly::IOBuf> data) {
   }
 }
 
-void LocalWriteFile::write(const std::vector<iovec> &iovecs, int64_t offset,
-                           int64_t length) {
+void LocalWriteFile::write(const std::vector<iovec> &iovecs, int64_t offset, int64_t length) {
   checkNotClosed(closed_);
-  const auto bytesWritten = ::pwritev(
-      fd_, iovecs.data(), static_cast<ssize_t>(iovecs.size()), offset);
+  const auto bytesWritten = ::pwritev(fd_, iovecs.data(), static_cast<ssize_t>(iovecs.size()), offset);
   VELOX_CHECK_EQ(bytesWritten, length);
   size_ = std::max<uint64_t>(size_, offset + bytesWritten);
 }
@@ -231,15 +211,11 @@ void LocalWriteFile::flush() {
   ::fsync(fd_);
 }
 
-void LocalWriteFile::setAttributes(
-    const std::unordered_map<std::string, std::string> &attributes) {
+void LocalWriteFile::setAttributes(const std::unordered_map<std::string, std::string> &attributes) {
   attributes_ = attributes;
 }
 
-std::unordered_map<std::string, std::string>
-LocalWriteFile::getAttributes() const {
-  return attributes_;
-}
+std::unordered_map<std::string, std::string> LocalWriteFile::getAttributes() const { return attributes_; }
 
 void LocalWriteFile::close() {
   if (!closed_) {

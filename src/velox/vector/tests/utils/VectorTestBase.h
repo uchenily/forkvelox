@@ -21,8 +21,7 @@ public:
 
   memory::MemoryPool *pool() { return pool_.get(); }
 
-  std::shared_ptr<FlatVector<StringView>>
-  makeFlatVectorString(const std::vector<std::string> &data) {
+  std::shared_ptr<FlatVector<StringView>> makeFlatVectorString(const std::vector<std::string> &data) {
     size_t size = data.size();
     auto values = AlignedBuffer::allocate(size * sizeof(StringView), pool());
     auto *rawValues = values->asMutable<StringView>();
@@ -41,13 +40,13 @@ public:
       offset += data[i].size();
     }
 
-    auto vec = std::make_shared<FlatVector<StringView>>(pool(), VARCHAR(),
-                                                        nullptr, size, values);
+    auto vec = std::make_shared<FlatVector<StringView>>(pool(), VARCHAR(), nullptr, size, values);
     vec->addStringBuffer(dataBuffer);
     return vec;
   }
 
-  template <typename T> auto makeFlatVector(const std::vector<T> &data) {
+  template <typename T>
+  auto makeFlatVector(const std::vector<T> &data) {
     if constexpr (std::is_same_v<T, std::string>) {
       return makeFlatVectorString(data);
     } else {
@@ -66,20 +65,17 @@ public:
       else
         type = BIGINT();
 
-      return std::make_shared<FlatVector<T>>(pool(), type, nullptr, size,
-                                             buffer);
+      return std::make_shared<FlatVector<T>>(pool(), type, nullptr, size, buffer);
     }
   }
 
-  std::shared_ptr<RowVector>
-  makeRowVector(const std::vector<std::string> &names,
-                const std::vector<VectorPtr> &children) {
+  std::shared_ptr<RowVector> makeRowVector(const std::vector<std::string> &names,
+                                           const std::vector<VectorPtr> &children) {
     std::vector<TypePtr> types;
     for (auto &c : children)
       types.push_back(c->type());
     auto rowType = ROW(names, types);
-    return std::make_shared<RowVector>(pool(), rowType, nullptr,
-                                       children[0]->size(), children);
+    return std::make_shared<RowVector>(pool(), rowType, nullptr, children[0]->size(), children);
   }
 
   std::shared_ptr<memory::MemoryPool> pool_;

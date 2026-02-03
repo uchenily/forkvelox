@@ -23,15 +23,11 @@ using namespace facebook::velox::exec::test;
 
 namespace {
 
-RowVectorPtr makeRowVector(memory::MemoryPool *pool,
-                           const std::vector<int64_t> &values) {
+RowVectorPtr makeRowVector(memory::MemoryPool *pool, const std::vector<int64_t> &values) {
   auto buffer = AlignedBuffer::allocate(values.size() * sizeof(int64_t), pool);
-  std::memcpy(buffer->asMutable<uint8_t>(), values.data(),
-              values.size() * sizeof(int64_t));
-  auto vector = std::make_shared<FlatVector<int64_t>>(pool, BIGINT(), nullptr,
-                                                      values.size(), buffer);
-  return std::make_shared<RowVector>(pool, ROW({"my_col"}, {BIGINT()}), nullptr,
-                                     values.size(),
+  std::memcpy(buffer->asMutable<uint8_t>(), values.data(), values.size() * sizeof(int64_t));
+  auto vector = std::make_shared<FlatVector<int64_t>>(pool, BIGINT(), nullptr, values.size(), buffer);
+  return std::make_shared<RowVector>(pool, ROW({"my_col"}, {BIGINT()}), nullptr, values.size(),
                                      std::vector<VectorPtr>{vector});
 }
 
@@ -58,21 +54,16 @@ int main(int argc, char **argv) {
   auto batch2 = dwio::common::RowVectorFile::read(pool.get(), file2);
 
   core::PlanNodeId scanId;
-  auto plan = PlanBuilder()
-                  .tableScan(asRowType(batch1->type()), file1)
-                  .capturePlanNodeId(scanId)
-                  .planNode();
+  auto plan = PlanBuilder().tableScan(asRowType(batch1->type()), file1).capturePlanNodeId(scanId).planNode();
 
-  auto task = Task::create("multi_split_scan", plan, core::QueryCtx::create(),
-                           Task::ExecutionMode::kParallel);
+  auto task = Task::create("multi_split_scan", plan, core::QueryCtx::create(), Task::ExecutionMode::kParallel);
   task->setMaxDrivers(2);
   task->addSplit(scanId, Split(file1));
   task->addSplit(scanId, Split(file2));
   task->noMoreSplits(scanId);
 
   auto results = task->run();
-  std::cout << "Multi-split task produced " << results.size() << " batches."
-            << std::endl;
+  std::cout << "Multi-split task produced " << results.size() << " batches." << std::endl;
   std::vector<std::string> actualRows;
   for (const auto &batch : results) {
     if (!batch) {
@@ -85,8 +76,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  std::vector<std::string> expectedRows = {"{1}", "{2}", "{3}",
-                                           "{4}", "{5}", "{6}"};
+  std::vector<std::string> expectedRows = {"{1}", "{2}", "{3}", "{4}", "{5}", "{6}"};
   std::sort(actualRows.begin(), actualRows.end());
   std::sort(expectedRows.begin(), expectedRows.end());
   VELOX_CHECK_EQ(actualRows.size(), expectedRows.size());

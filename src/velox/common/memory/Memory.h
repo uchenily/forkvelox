@@ -18,12 +18,8 @@ public:
   }
 };
 
-inline void initializeMemoryManager(const MemoryManager::Options &options) {
-  MemoryManager::initialize(options);
-}
+inline void initializeMemoryManager(const MemoryManager::Options &options) { MemoryManager::initialize(options); }
 
-inline std::shared_ptr<MemoryPool> defaultMemoryPool() {
-  return MemoryManager::getInstance()->addLeafPool();
-}
+inline std::shared_ptr<MemoryPool> defaultMemoryPool() { return MemoryManager::getInstance()->addLeafPool(); }
 
 } // namespace facebook::velox::memory

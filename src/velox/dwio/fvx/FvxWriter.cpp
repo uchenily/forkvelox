@@ -20,7 +20,8 @@ namespace {
 constexpr char kMagic[] = {'F', 'V', 'X', '1'};
 constexpr uint32_t kVersion = 1;
 
-template <typename T> void appendPod(std::string &out, T value) {
+template <typename T>
+void appendPod(std::string &out, T value) {
   out.append(reinterpret_cast<const char *>(&value), sizeof(T));
 }
 
@@ -57,13 +58,12 @@ void ensureFileSystemRegistered() {
   std::call_once(flag, []() { filesystems::registerLocalFileSystem(); });
 }
 
-ColumnStats buildStats(TypeKind kind, const RowVector &data, size_t columnIndex,
-                       vector_size_t start, vector_size_t count) {
+ColumnStats buildStats(TypeKind kind, const RowVector &data, size_t columnIndex, vector_size_t start,
+                       vector_size_t count) {
   ColumnStats stats;
   stats.kind = kind;
   if (kind == TypeKind::BIGINT) {
-    auto vector = std::dynamic_pointer_cast<FlatVector<int64_t>>(
-        data.childAt(columnIndex));
+    auto vector = std::dynamic_pointer_cast<FlatVector<int64_t>>(data.childAt(columnIndex));
     VELOX_CHECK(vector != nullptr, "FVX supports FlatVector<int64_t> only");
     for (vector_size_t i = 0; i < count; ++i) {
       VELOX_CHECK(!vector->isNullAt(start + i), "FVX does not support nulls");
@@ -78,8 +78,7 @@ ColumnStats buildStats(TypeKind kind, const RowVector &data, size_t columnIndex,
     stats.minBigint = minValue;
     stats.maxBigint = maxValue;
   } else if (kind == TypeKind::INTEGER) {
-    auto vector = std::dynamic_pointer_cast<FlatVector<int32_t>>(
-        data.childAt(columnIndex));
+    auto vector = std::dynamic_pointer_cast<FlatVector<int32_t>>(data.childAt(columnIndex));
     VELOX_CHECK(vector != nullptr, "FVX supports FlatVector<int32_t> only");
     for (vector_size_t i = 0; i < count; ++i) {
       VELOX_CHECK(!vector->isNullAt(start + i), "FVX does not support nulls");
@@ -94,14 +93,12 @@ ColumnStats buildStats(TypeKind kind, const RowVector &data, size_t columnIndex,
     stats.minInt = minValue;
     stats.maxInt = maxValue;
   } else if (kind == TypeKind::VARCHAR) {
-    auto vector = std::dynamic_pointer_cast<FlatVector<StringView>>(
-        data.childAt(columnIndex));
+    auto vector = std::dynamic_pointer_cast<FlatVector<StringView>>(data.childAt(columnIndex));
     VELOX_CHECK(vector != nullptr, "FVX supports FlatVector<StringView> only");
     for (vector_size_t i = 0; i < count; ++i) {
       VELOX_CHECK(!vector->isNullAt(start + i), "FVX does not support nulls");
     }
-    std::string minValue(vector->valueAt(start).data(),
-                         vector->valueAt(start).size());
+    std::string minValue(vector->valueAt(start).data(), vector->valueAt(start).size());
     std::string maxValue = minValue;
     for (vector_size_t i = 1; i < count; ++i) {
       auto view = vector->valueAt(start + i);
@@ -121,27 +118,21 @@ ColumnStats buildStats(TypeKind kind, const RowVector &data, size_t columnIndex,
   return stats;
 }
 
-std::string buildColumnData(TypeKind kind, const RowVector &data,
-                            size_t columnIndex, vector_size_t start,
+std::string buildColumnData(TypeKind kind, const RowVector &data, size_t columnIndex, vector_size_t start,
                             vector_size_t count) {
   std::string out;
   if (kind == TypeKind::BIGINT) {
-    auto vector = std::dynamic_pointer_cast<FlatVector<int64_t>>(
-        data.childAt(columnIndex));
+    auto vector = std::dynamic_pointer_cast<FlatVector<int64_t>>(data.childAt(columnIndex));
     VELOX_CHECK(vector != nullptr, "FVX supports FlatVector<int64_t> only");
     out.resize(count * sizeof(int64_t));
-    std::memcpy(out.data(), vector->rawValues() + start,
-                count * sizeof(int64_t));
+    std::memcpy(out.data(), vector->rawValues() + start, count * sizeof(int64_t));
   } else if (kind == TypeKind::INTEGER) {
-    auto vector = std::dynamic_pointer_cast<FlatVector<int32_t>>(
-        data.childAt(columnIndex));
+    auto vector = std::dynamic_pointer_cast<FlatVector<int32_t>>(data.childAt(columnIndex));
     VELOX_CHECK(vector != nullptr, "FVX supports FlatVector<int32_t> only");
     out.resize(count * sizeof(int32_t));
-    std::memcpy(out.data(), vector->rawValues() + start,
-                count * sizeof(int32_t));
+    std::memcpy(out.data(), vector->rawValues() + start, count * sizeof(int32_t));
   } else if (kind == TypeKind::VARCHAR) {
-    auto vector = std::dynamic_pointer_cast<FlatVector<StringView>>(
-        data.childAt(columnIndex));
+    auto vector = std::dynamic_pointer_cast<FlatVector<StringView>>(data.childAt(columnIndex));
     VELOX_CHECK(vector != nullptr, "FVX supports FlatVector<StringView> only");
     std::vector<uint32_t> offsets(count + 1, 0);
     size_t totalBytes = 0;
@@ -151,8 +142,7 @@ std::string buildColumnData(TypeKind kind, const RowVector &data,
       offsets[i + 1] = static_cast<uint32_t>(totalBytes);
     }
     appendPod(out, static_cast<uint32_t>(totalBytes));
-    out.append(reinterpret_cast<const char *>(offsets.data()),
-               offsets.size() * sizeof(uint32_t));
+    out.append(reinterpret_cast<const char *>(offsets.data()), offsets.size() * sizeof(uint32_t));
     size_t bytesOffset = out.size();
     out.resize(out.size() + totalBytes);
     char *cursor = out.data() + bytesOffset;
@@ -175,16 +165,14 @@ size_t statsSize(const ColumnStats &stats) {
     return sizeof(int32_t) * 2;
   }
   if (stats.kind == TypeKind::VARCHAR) {
-    return sizeof(uint32_t) + stats.minString.size() + sizeof(uint32_t) +
-           stats.maxString.size();
+    return sizeof(uint32_t) + stats.minString.size() + sizeof(uint32_t) + stats.maxString.size();
   }
   return 0;
 }
 
 } // namespace
 
-void FvxWriter::write(const RowVector &data, const std::string &path,
-                      FvxWriteOptions options) {
+void FvxWriter::write(const RowVector &data, const std::string &path, FvxWriteOptions options) {
   ensureFileSystemRegistered();
   auto fs = filesystems::getFileSystem(path, nullptr);
 
@@ -198,8 +186,7 @@ void FvxWriter::write(const RowVector &data, const std::string &path,
   VELOX_CHECK(rowType->size() > 0, "FVX requires at least one column");
 
   const vector_size_t totalRows = data.size();
-  const vector_size_t groupSize =
-      options.rowGroupSize == 0 ? totalRows : options.rowGroupSize;
+  const vector_size_t groupSize = options.rowGroupSize == 0 ? totalRows : options.rowGroupSize;
 
   std::vector<RowGroupData> rowGroups;
   for (vector_size_t start = 0; start < totalRows; start += groupSize) {

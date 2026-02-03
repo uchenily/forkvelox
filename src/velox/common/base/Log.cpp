@@ -51,15 +51,12 @@ std::string formatTimestamp() {
 }
 } // namespace
 
-void Log::setLevel(LogLevel level) {
-  gMinLevel.store(level, std::memory_order_relaxed);
-}
+void Log::setLevel(LogLevel level) { gMinLevel.store(level, std::memory_order_relaxed); }
 
 LogLevel Log::level() { return gMinLevel.load(std::memory_order_relaxed); }
 
 bool Log::shouldLog(LogLevel level) {
-  return static_cast<int>(level) >=
-         static_cast<int>(gMinLevel.load(std::memory_order_relaxed));
+  return static_cast<int>(level) >= static_cast<int>(gMinLevel.load(std::memory_order_relaxed));
 }
 
 void Log::setOutput(std::ostream *out) {
@@ -82,16 +79,14 @@ void Log::setAutoFlush(bool enable) {
   gAutoFlush = enable;
 }
 
-void Log::log(LogLevel level, std::source_location location,
-              std::string_view message) {
+void Log::log(LogLevel level, std::source_location location, std::string_view message) {
   if (!shouldLog(level)) {
     return;
   }
   logImpl(level, location, std::string(message));
 }
 
-void Log::logImpl(LogLevel level, std::source_location location,
-                  std::string message) {
+void Log::logImpl(LogLevel level, std::source_location location, std::string message) {
   std::string timestamp;
   std::ostream *out = nullptr;
   bool useColor = false;
@@ -118,10 +113,8 @@ void Log::logImpl(LogLevel level, std::source_location location,
   const char *color = useColor ? levelColor(level) : "";
   const char *reset = useColor ? "\033[0m" : "";
 
-  std::string line =
-      std::format("{}{}[{}] {}:{} {} - {}{}", color, timePrefix,
-                  levelToString(level), location.file_name(), location.line(),
-                  location.function_name(), message, reset);
+  std::string line = std::format("{}{}[{}] {}:{} {} - {}{}", color, timePrefix, levelToString(level),
+                                 location.file_name(), location.line(), location.function_name(), message, reset);
 
   {
     std::lock_guard<std::mutex> guard(gLogMutex);

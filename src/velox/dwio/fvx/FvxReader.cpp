@@ -16,7 +16,8 @@ namespace {
 constexpr char kMagic[] = {'F', 'V', 'X', '1'};
 constexpr uint32_t kVersion = 1;
 
-template <typename T> T readPod(const std::string &data, size_t &offset) {
+template <typename T>
+T readPod(const std::string &data, size_t &offset) {
   VELOX_CHECK(offset + sizeof(T) <= data.size(), "FVX: Unexpected end of file");
   T value;
   std::memcpy(&value, data.data() + offset, sizeof(T));
@@ -44,15 +45,13 @@ int compareStrings(const std::string &left, const std::string &right) {
 
 } // namespace
 
-FvxReader::FvxReader(std::shared_ptr<ReadFile> file, memory::MemoryPool *pool)
-    : file_(std::move(file)), pool_(pool) {
+FvxReader::FvxReader(std::shared_ptr<ReadFile> file, memory::MemoryPool *pool) : file_(std::move(file)), pool_(pool) {
   VELOX_CHECK(file_ != nullptr, "ReadFile must not be null");
   parseFile();
   buildNameToIndex();
 }
 
-std::unique_ptr<FvxRowReader> FvxReader::createRowReader(
-    const dwio::common::RowReaderOptions &options) const {
+std::unique_ptr<FvxRowReader> FvxReader::createRowReader(const dwio::common::RowReaderOptions &options) const {
   return std::make_unique<FvxRowReader>(this, options);
 }
 
@@ -61,8 +60,7 @@ void FvxReader::parseFile() {
   data_ = file_->pread(0, size);
   size_t offset = 0;
   VELOX_CHECK(data_.size() >= sizeof(kMagic), "FVX: file too small");
-  VELOX_CHECK(std::memcmp(data_.data(), kMagic, sizeof(kMagic)) == 0,
-              "FVX: invalid magic");
+  VELOX_CHECK(std::memcmp(data_.data(), kMagic, sizeof(kMagic)) == 0, "FVX: invalid magic");
   offset += sizeof(kMagic);
   uint32_t version = readPod<uint32_t>(data_, offset);
   VELOX_CHECK(version == kVersion, "FVX: unsupported version");
@@ -125,8 +123,7 @@ void FvxReader::buildNameToIndex() {
   }
 }
 
-FvxRowReader::FvxRowReader(const FvxReader *reader,
-                           dwio::common::RowReaderOptions options)
+FvxRowReader::FvxRowReader(const FvxReader *reader, dwio::common::RowReaderOptions options)
     : reader_(reader), options_(std::move(options)) {
   buildProjection();
 }
@@ -145,10 +142,8 @@ bool FvxRowReader::next(size_t batchSize, RowVectorPtr &out) {
     return next(batchSize, out);
   }
 
-  vector_size_t remaining =
-      static_cast<vector_size_t>(cache.rowCount) - rowOffsetInGroup_;
-  vector_size_t count =
-      static_cast<vector_size_t>(std::min<size_t>(batchSize, remaining));
+  vector_size_t remaining = static_cast<vector_size_t>(cache.rowCount) - rowOffsetInGroup_;
+  vector_size_t count = static_cast<vector_size_t>(std::min<size_t>(batchSize, remaining));
   out = buildRowVectorFromCache(cache, rowOffsetInGroup_, count);
   rowOffsetInGroup_ += count;
   return true;
@@ -167,8 +162,7 @@ bool FvxRowReader::loadNextMatchingRowGroup() {
     for (size_t i = 0; i < projectedIndices_.size(); ++i) {
       auto columnIndex = projectedIndices_[i];
       auto kind = reader_->rowType_->childAt(columnIndex)->kind();
-      cache.columns.push_back(
-          decodeColumn(rowGroup.columns[columnIndex], kind, rowGroup.rowCount));
+      cache.columns.push_back(decodeColumn(rowGroup.columns[columnIndex], kind, rowGroup.rowCount));
     }
     currentGroup_ = std::move(cache);
     rowOffsetInGroup_ = 0;
@@ -191,8 +185,7 @@ bool FvxRowReader::rowGroupMatches(const FvxReader::RowGroup &rowGroup) const {
   return true;
 }
 
-bool FvxRowReader::columnMayMatch(const FvxReader::ColumnStats &stats,
-                                  dwio::common::CompareOp op,
+bool FvxRowReader::columnMayMatch(const FvxReader::ColumnStats &stats, dwio::common::CompareOp op,
                                   const Variant &value) const {
   if (!stats.hasMinMax || value.isNull()) {
     return true;
@@ -202,10 +195,8 @@ bool FvxRowReader::columnMayMatch(const FvxReader::ColumnStats &stats,
       return true;
     }
     int64_t v = value.value<int64_t>();
-    int64_t minValue =
-        (stats.kind == TypeKind::BIGINT) ? stats.minBigint : stats.minInt;
-    int64_t maxValue =
-        (stats.kind == TypeKind::BIGINT) ? stats.maxBigint : stats.maxInt;
+    int64_t minValue = (stats.kind == TypeKind::BIGINT) ? stats.minBigint : stats.minInt;
+    int64_t maxValue = (stats.kind == TypeKind::BIGINT) ? stats.maxBigint : stats.maxInt;
     switch (op) {
     case dwio::common::CompareOp::EQ:
       return !(v < minValue || v > maxValue);
@@ -247,8 +238,7 @@ bool FvxRowReader::columnMayMatch(const FvxReader::ColumnStats &stats,
   return true;
 }
 
-RowVectorPtr FvxRowReader::buildRowVectorFromCache(const RowGroupCache &cache,
-                                                   vector_size_t offset,
+RowVectorPtr FvxRowReader::buildRowVectorFromCache(const RowGroupCache &cache, vector_size_t offset,
                                                    vector_size_t count) const {
   std::vector<VectorPtr> children;
   children.reserve(cache.columns.size());
@@ -257,19 +247,13 @@ RowVectorPtr FvxRowReader::buildRowVectorFromCache(const RowGroupCache &cache,
     const auto &column = cache.columns[i];
     auto type = outputType_->childAt(i);
     if (column.kind == TypeKind::BIGINT) {
-      auto buffer =
-          AlignedBuffer::allocate(count * sizeof(int64_t), reader_->pool_);
-      std::memcpy(buffer->as_mutable_uint8_t(), column.int64s.data() + offset,
-                  count * sizeof(int64_t));
-      children.push_back(std::make_shared<FlatVector<int64_t>>(
-          reader_->pool_, type, nullptr, count, buffer));
+      auto buffer = AlignedBuffer::allocate(count * sizeof(int64_t), reader_->pool_);
+      std::memcpy(buffer->as_mutable_uint8_t(), column.int64s.data() + offset, count * sizeof(int64_t));
+      children.push_back(std::make_shared<FlatVector<int64_t>>(reader_->pool_, type, nullptr, count, buffer));
     } else if (column.kind == TypeKind::INTEGER) {
-      auto buffer =
-          AlignedBuffer::allocate(count * sizeof(int32_t), reader_->pool_);
-      std::memcpy(buffer->as_mutable_uint8_t(), column.int32s.data() + offset,
-                  count * sizeof(int32_t));
-      children.push_back(std::make_shared<FlatVector<int32_t>>(
-          reader_->pool_, type, nullptr, count, buffer));
+      auto buffer = AlignedBuffer::allocate(count * sizeof(int32_t), reader_->pool_);
+      std::memcpy(buffer->as_mutable_uint8_t(), column.int32s.data() + offset, count * sizeof(int32_t));
+      children.push_back(std::make_shared<FlatVector<int32_t>>(reader_->pool_, type, nullptr, count, buffer));
     } else if (column.kind == TypeKind::VARCHAR) {
       const auto begin = column.strings.begin() + offset;
       const auto end = begin + count;
@@ -277,8 +261,7 @@ RowVectorPtr FvxRowReader::buildRowVectorFromCache(const RowGroupCache &cache,
       for (auto it = begin; it != end; ++it) {
         totalSize += it->size();
       }
-      auto values =
-          AlignedBuffer::allocate(count * sizeof(StringView), reader_->pool_);
+      auto values = AlignedBuffer::allocate(count * sizeof(StringView), reader_->pool_);
       auto *rawValues = values->asMutable<StringView>();
       auto dataBuffer = AlignedBuffer::allocate(totalSize, reader_->pool_);
       char *cursor = dataBuffer->asMutable<char>();
@@ -289,8 +272,7 @@ RowVectorPtr FvxRowReader::buildRowVectorFromCache(const RowGroupCache &cache,
         rawValues[row] = StringView(cursor + bytesOffset, it->size());
         bytesOffset += it->size();
       }
-      auto vector = std::make_shared<FlatVector<StringView>>(
-          reader_->pool_, type, nullptr, count, values);
+      auto vector = std::make_shared<FlatVector<StringView>>(reader_->pool_, type, nullptr, count, values);
       vector->addStringBuffer(dataBuffer);
       children.push_back(vector);
     } else {
@@ -298,36 +280,28 @@ RowVectorPtr FvxRowReader::buildRowVectorFromCache(const RowGroupCache &cache,
     }
   }
 
-  return std::make_shared<RowVector>(reader_->pool_, outputType_, nullptr,
-                                     count, std::move(children));
+  return std::make_shared<RowVector>(reader_->pool_, outputType_, nullptr, count, std::move(children));
 }
 
-FvxRowReader::ColumnBuffer
-FvxRowReader::decodeColumn(const FvxReader::ColumnChunk &chunk, TypeKind kind,
-                           uint32_t rowCount) const {
+FvxRowReader::ColumnBuffer FvxRowReader::decodeColumn(const FvxReader::ColumnChunk &chunk, TypeKind kind,
+                                                      uint32_t rowCount) const {
   ColumnBuffer buffer;
   buffer.kind = kind;
   size_t offset = static_cast<size_t>(chunk.offset);
   if (kind == TypeKind::BIGINT) {
     buffer.int64s.resize(rowCount);
-    VELOX_CHECK(offset + rowCount * sizeof(int64_t) <= reader_->data_.size(),
-                "FVX: bigint column out of bounds");
-    std::memcpy(buffer.int64s.data(), reader_->data_.data() + offset,
-                rowCount * sizeof(int64_t));
+    VELOX_CHECK(offset + rowCount * sizeof(int64_t) <= reader_->data_.size(), "FVX: bigint column out of bounds");
+    std::memcpy(buffer.int64s.data(), reader_->data_.data() + offset, rowCount * sizeof(int64_t));
   } else if (kind == TypeKind::INTEGER) {
     buffer.int32s.resize(rowCount);
-    VELOX_CHECK(offset + rowCount * sizeof(int32_t) <= reader_->data_.size(),
-                "FVX: integer column out of bounds");
-    std::memcpy(buffer.int32s.data(), reader_->data_.data() + offset,
-                rowCount * sizeof(int32_t));
+    VELOX_CHECK(offset + rowCount * sizeof(int32_t) <= reader_->data_.size(), "FVX: integer column out of bounds");
+    std::memcpy(buffer.int32s.data(), reader_->data_.data() + offset, rowCount * sizeof(int32_t));
   } else if (kind == TypeKind::VARCHAR) {
     uint32_t totalBytes = readPod<uint32_t>(reader_->data_, offset);
     std::vector<uint32_t> offsets(rowCount + 1);
-    VELOX_CHECK(offset + offsets.size() * sizeof(uint32_t) + totalBytes <=
-                    reader_->data_.size(),
+    VELOX_CHECK(offset + offsets.size() * sizeof(uint32_t) + totalBytes <= reader_->data_.size(),
                 "FVX: varchar column out of bounds");
-    std::memcpy(offsets.data(), reader_->data_.data() + offset,
-                offsets.size() * sizeof(uint32_t));
+    std::memcpy(offsets.data(), reader_->data_.data() + offset, offsets.size() * sizeof(uint32_t));
     offset += offsets.size() * sizeof(uint32_t);
     buffer.strings.reserve(rowCount);
     const char *base = reader_->data_.data() + offset;
@@ -337,8 +311,7 @@ FvxRowReader::decodeColumn(const FvxReader::ColumnChunk &chunk, TypeKind kind,
       VELOX_CHECK(end >= start, "FVX: invalid string offsets");
       buffer.strings.emplace_back(base + start, end - start);
     }
-    VELOX_CHECK(offsets.back() == totalBytes,
-                "FVX: string data length mismatch");
+    VELOX_CHECK(offsets.back() == totalBytes, "FVX: string data length mismatch");
   } else {
     VELOX_FAIL("FVX supports BIGINT, INTEGER, VARCHAR only");
   }

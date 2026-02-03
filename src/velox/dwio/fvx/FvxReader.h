@@ -20,8 +20,7 @@ class FvxReader {
 public:
   FvxReader(std::shared_ptr<ReadFile> file, memory::MemoryPool *pool);
 
-  std::unique_ptr<FvxRowReader>
-  createRowReader(const dwio::common::RowReaderOptions &options) const;
+  std::unique_ptr<FvxRowReader> createRowReader(const dwio::common::RowReaderOptions &options) const;
 
   const RowTypePtr &rowType() const { return rowType_; }
 
@@ -90,14 +89,10 @@ private:
 
   bool loadNextMatchingRowGroup();
   bool rowGroupMatches(const FvxReader::RowGroup &rowGroup) const;
-  bool columnMayMatch(const FvxReader::ColumnStats &stats,
-                      dwio::common::CompareOp op, const Variant &value) const;
+  bool columnMayMatch(const FvxReader::ColumnStats &stats, dwio::common::CompareOp op, const Variant &value) const;
 
-  RowVectorPtr buildRowVectorFromCache(const RowGroupCache &cache,
-                                       vector_size_t offset,
-                                       vector_size_t count) const;
-  ColumnBuffer decodeColumn(const FvxReader::ColumnChunk &chunk, TypeKind kind,
-                            uint32_t rowCount) const;
+  RowVectorPtr buildRowVectorFromCache(const RowGroupCache &cache, vector_size_t offset, vector_size_t count) const;
+  ColumnBuffer decodeColumn(const FvxReader::ColumnChunk &chunk, TypeKind kind, uint32_t rowCount) const;
   void buildProjection();
 };
 

@@ -25,13 +25,10 @@ RowVectorPtr makeSampleData(memory::MemoryPool *pool) {
   for (vector_size_t i = 0; i < numRows; ++i) {
     rawIds[i] = i + 1;
   }
-  auto idVector = std::make_shared<FlatVector<int64_t>>(pool, BIGINT(), nullptr,
-                                                        numRows, ids);
+  auto idVector = std::make_shared<FlatVector<int64_t>>(pool, BIGINT(), nullptr, numRows, ids);
 
-  std::vector<std::string> labels{"alpha", "beta", "gamma", "delta", "skip",
-                                  "omega", "pi",   "tau",   "sigma", "zeta"};
-  auto labelValues =
-      AlignedBuffer::allocate(numRows * sizeof(StringView), pool);
+  std::vector<std::string> labels{"alpha", "beta", "gamma", "delta", "skip", "omega", "pi", "tau", "sigma", "zeta"};
+  auto labelValues = AlignedBuffer::allocate(numRows * sizeof(StringView), pool);
   auto *rawLabels = labelValues->asMutable<StringView>();
   size_t totalBytes = 0;
   for (const auto &label : labels) {
@@ -45,22 +42,18 @@ RowVectorPtr makeSampleData(memory::MemoryPool *pool) {
     rawLabels[i] = StringView(data + offset, labels[i].size());
     offset += labels[i].size();
   }
-  auto labelVector = std::make_shared<FlatVector<StringView>>(
-      pool, VARCHAR(), nullptr, numRows, labelValues,
-      std::vector<BufferPtr>{dataBuffer});
+  auto labelVector = std::make_shared<FlatVector<StringView>>(pool, VARCHAR(), nullptr, numRows, labelValues,
+                                                              std::vector<BufferPtr>{dataBuffer});
 
   auto prices = AlignedBuffer::allocate(numRows * sizeof(int32_t), pool);
   auto *rawPrices = prices->asMutable<int32_t>();
   for (vector_size_t i = 0; i < numRows; ++i) {
     rawPrices[i] = static_cast<int32_t>((i + 1) * 3);
   }
-  auto priceVector = std::make_shared<FlatVector<int32_t>>(
-      pool, INTEGER(), nullptr, numRows, prices);
+  auto priceVector = std::make_shared<FlatVector<int32_t>>(pool, INTEGER(), nullptr, numRows, prices);
 
-  return std::make_shared<RowVector>(
-      pool, ROW({"id", "label", "price"}, {BIGINT(), VARCHAR(), INTEGER()}),
-      nullptr, numRows,
-      std::vector<VectorPtr>{idVector, labelVector, priceVector});
+  return std::make_shared<RowVector>(pool, ROW({"id", "label", "price"}, {BIGINT(), VARCHAR(), INTEGER()}), nullptr,
+                                     numRows, std::vector<VectorPtr>{idVector, labelVector, priceVector});
 }
 
 } // namespace
@@ -72,8 +65,7 @@ int main(int argc, char **argv) {
   memory::initializeMemoryManager(memory::MemoryManager::Options{});
   auto pool = memory::defaultMemoryPool();
 
-  const std::string filePath =
-      (argc >= 2) ? std::string{argv[1]} : std::string{"data/sample.fvx"};
+  const std::string filePath = (argc >= 2) ? std::string{argv[1]} : std::string{"data/sample.fvx"};
 
   auto data = makeSampleData(pool.get());
   dwio::fvx::FvxWriter::write(*data, filePath, {.rowGroupSize = 4});
@@ -81,19 +73,15 @@ int main(int argc, char **argv) {
   dwio::common::ReaderOptions readerOpts{pool.get()};
   readerOpts.setFileFormat(dwio::common::FileFormat::FVX);
 
-  auto reader =
-      dwio::common::getReaderFactory(dwio::common::FileFormat::FVX)
-          ->createReader(std::make_unique<dwio::common::BufferedInput>(
-                             std::make_shared<LocalReadFile>(filePath),
-                             readerOpts.memoryPool()),
-                         readerOpts);
+  auto reader = dwio::common::getReaderFactory(dwio::common::FileFormat::FVX)
+                    ->createReader(std::make_unique<dwio::common::BufferedInput>(
+                                       std::make_shared<LocalReadFile>(filePath), readerOpts.memoryPool()),
+                                   readerOpts);
 
   dwio::common::RowReaderOptions rowReaderOptions;
   rowReaderOptions.setProjectedColumns({"id", "price"});
-  rowReaderOptions.addFilter(
-      {"price", dwio::common::CompareOp::GT, Variant(12)});
-  rowReaderOptions.addFilter(
-      {"label", dwio::common::CompareOp::NE, Variant("skip")});
+  rowReaderOptions.addFilter({"price", dwio::common::CompareOp::GT, Variant(12)});
+  rowReaderOptions.addFilter({"label", dwio::common::CompareOp::NE, Variant("skip")});
 
   VectorPtr batch;
   auto rowReader = reader->createRowReader(rowReaderOptions);

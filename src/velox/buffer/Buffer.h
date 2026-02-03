@@ -26,11 +26,13 @@ public:
   virtual uint64_t size() const = 0;
   virtual uint64_t capacity() const = 0;
 
-  template <typename T> const T *as() const {
+  template <typename T>
+  const T *as() const {
     return reinterpret_cast<const T *>(as_uint8_t());
   }
 
-  template <typename T> T *asMutable() {
+  template <typename T>
+  T *asMutable() {
     return reinterpret_cast<T *>(as_mutable_uint8_t());
   }
 
@@ -42,8 +44,7 @@ using BufferPtr = IntrusivePtr<Buffer>;
 
 class AlignedBuffer : public Buffer {
 public:
-  AlignedBuffer(memory::MemoryPool *pool, uint64_t size)
-      : pool_(pool), size_(size), capacity_(size) {
+  AlignedBuffer(memory::MemoryPool *pool, uint64_t size) : pool_(pool), size_(size), capacity_(size) {
     if (pool_) {
       data_ = static_cast<uint8_t *>(pool_->allocate(capacity_));
     } else {

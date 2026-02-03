@@ -5,8 +5,7 @@
 namespace facebook::velox::config {
 class ConfigBase {
 public:
-  ConfigBase(std::unordered_map<std::string, std::string> values)
-      : values_(std::move(values)) {}
+  ConfigBase(std::unordered_map<std::string, std::string> values) : values_(std::move(values)) {}
 
 private:
   std::unordered_map<std::string, std::string> values_;

@@ -7,13 +7,10 @@ namespace facebook::velox {
 
 class ArrayVector : public BaseVector {
 public:
-  ArrayVector(memory::MemoryPool *pool, std::shared_ptr<const Type> type,
-              BufferPtr nulls, vector_size_t length, BufferPtr offsets,
-              BufferPtr sizes, VectorPtr elements)
-      : BaseVector(pool, type, VectorEncoding::Simple::ARRAY, std::move(nulls),
-                   length),
-        offsets_(std::move(offsets)), sizes_(std::move(sizes)),
-        elements_(std::move(elements)) {}
+  ArrayVector(memory::MemoryPool *pool, std::shared_ptr<const Type> type, BufferPtr nulls, vector_size_t length,
+              BufferPtr offsets, BufferPtr sizes, VectorPtr elements)
+      : BaseVector(pool, type, VectorEncoding::Simple::ARRAY, std::move(nulls), length), offsets_(std::move(offsets)),
+        sizes_(std::move(sizes)), elements_(std::move(elements)) {}
 
   const VectorPtr &elements() const { return elements_; }
 
@@ -31,21 +28,17 @@ public:
     const auto offset = offsetAt(index);
     const auto size = sizeAt(index);
     return stringifyTruncatedElementList(
-        size, [this, offset](std::stringstream &out, size_t i) {
-          out << elements_->toString(offset + i);
-        });
+        size, [this, offset](std::stringstream &out, size_t i) { out << elements_->toString(offset + i); });
   }
 
-  int32_t compare(const BaseVector *other, vector_size_t index,
-                  vector_size_t otherIndex) const override {
+  int32_t compare(const BaseVector *other, vector_size_t index, vector_size_t otherIndex) const override {
     auto *otherArray = static_cast<const ArrayVector *>(other);
     const auto size = sizeAt(index);
     const auto otherSize = otherArray->sizeAt(otherIndex);
     const auto minSize = std::min(size, otherSize);
     for (int32_t i = 0; i < minSize; ++i) {
       int32_t cmp =
-          elements_->compare(otherArray->elements_.get(), offsetAt(index) + i,
-                             otherArray->offsetAt(otherIndex) + i);
+          elements_->compare(otherArray->elements_.get(), offsetAt(index) + i, otherArray->offsetAt(otherIndex) + i);
       if (cmp != 0)
         return cmp;
     }
@@ -56,8 +49,7 @@ public:
     return 0;
   }
 
-  void copy(const BaseVector * /*source*/, vector_size_t /*sourceIndex*/,
-            vector_size_t /*targetIndex*/) override {
+  void copy(const BaseVector * /*source*/, vector_size_t /*sourceIndex*/, vector_size_t /*targetIndex*/) override {
     VELOX_NYI("ArrayVector copy not implemented in ForkVelox");
   }
 
@@ -71,12 +63,9 @@ class RowVector : public BaseVector {
 public:
   using BaseVector::toString;
 
-  RowVector(memory::MemoryPool *pool, std::shared_ptr<const Type> type,
-            BufferPtr nulls, vector_size_t length,
+  RowVector(memory::MemoryPool *pool, std::shared_ptr<const Type> type, BufferPtr nulls, vector_size_t length,
             std::vector<VectorPtr> children)
-      : BaseVector(pool, type, VectorEncoding::Simple::ROW, std::move(nulls),
-                   length),
-        children_(std::move(children)) {}
+      : BaseVector(pool, type, VectorEncoding::Simple::ROW, std::move(nulls), length), children_(std::move(children)) {}
 
   /// Returns string representation of a single row.
   /// Format: {col1_value, col2_value, ...}
@@ -102,8 +91,7 @@ public:
   ///   0: {0, 0, monday}
   ///   1: {1, 5, tuesday}
   ///   ...
-  std::string toString(vector_size_t from, vector_size_t to,
-                       const char *delimiter = "\n",
+  std::string toString(vector_size_t from, vector_size_t to, const char *delimiter = "\n",
                        bool includeRowNumbers = true) const {
     const auto start = std::max<vector_size_t>(0, std::min(from, length_));
     const auto end = std::max<vector_size_t>(0, std::min(to, length_));
@@ -129,21 +117,18 @@ public:
 
   vector_size_t childrenSize() const { return children_.size(); }
 
-  int32_t compare(const BaseVector *other, vector_size_t index,
-                  vector_size_t otherIndex) const override {
+  int32_t compare(const BaseVector *other, vector_size_t index, vector_size_t otherIndex) const override {
     // Compare child by child
     auto *otherRow = static_cast<const RowVector *>(other);
     for (size_t i = 0; i < children_.size(); ++i) {
-      int cmp = children_[i]->compare(otherRow->children_[i].get(), index,
-                                      otherIndex);
+      int cmp = children_[i]->compare(otherRow->children_[i].get(), index, otherIndex);
       if (cmp != 0)
         return cmp;
     }
     return 0;
   }
 
-  void copy(const BaseVector *source, vector_size_t sourceIndex,
-            vector_size_t targetIndex) override {
+  void copy(const BaseVector *source, vector_size_t sourceIndex, vector_size_t targetIndex) override {
     auto *srcRow = static_cast<const RowVector *>(source);
     for (size_t i = 0; i < children_.size(); ++i) {
       children_[i]->copy(srcRow->children_[i].get(), sourceIndex, targetIndex);

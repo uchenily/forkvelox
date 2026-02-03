@@ -46,26 +46,22 @@ ExprPtr compile(const core::TypedExprPtr &expr);
 
 class ConstantExpr : public Expr {
 public:
-  ConstantExpr(Variant value)
-      : Expr(resolveType(value), {}, value.toString()), value_(value) {}
+  ConstantExpr(Variant value) : Expr(resolveType(value), {}, value.toString()), value_(value) {}
 
-  void eval(const SelectivityVector &rows, EvalCtx &context,
-            VectorPtr &result) override {
+  void eval(const SelectivityVector &rows, EvalCtx &context, VectorPtr &result) override {
     auto pool = context.pool();
     int size = rows.size();
 
     if (value_.kind() == TypeKind::BIGINT) {
-      auto flat = std::make_shared<FlatVector<int64_t>>(
-          pool, BIGINT(), nullptr, size,
-          AlignedBuffer::allocate(size * sizeof(int64_t), pool));
+      auto flat = std::make_shared<FlatVector<int64_t>>(pool, BIGINT(), nullptr, size,
+                                                        AlignedBuffer::allocate(size * sizeof(int64_t), pool));
       int64_t v = value_.value<int64_t>();
       auto *raw = flat->mutableRawValues();
       rows.applyToSelected([&](vector_size_t i) { raw[i] = v; });
       result = flat;
     } else if (value_.kind() == TypeKind::INTEGER) {
-      auto flat = std::make_shared<FlatVector<int32_t>>(
-          pool, INTEGER(), nullptr, size,
-          AlignedBuffer::allocate(size * sizeof(int32_t), pool));
+      auto flat = std::make_shared<FlatVector<int32_t>>(pool, INTEGER(), nullptr, size,
+                                                        AlignedBuffer::allocate(size * sizeof(int32_t), pool));
       int64_t v = value_.value<int64_t>();
       auto *raw = flat->mutableRawValues();
       rows.applyToSelected([&](vector_size_t i) { raw[i] = (int32_t)v; });
@@ -88,11 +84,9 @@ private:
 
 class FieldReference : public Expr {
 public:
-  FieldReference(std::string name, std::shared_ptr<const Type> type)
-      : Expr(type, {}, name) {}
+  FieldReference(std::string name, std::shared_ptr<const Type> type) : Expr(type, {}, name) {}
 
-  void eval(const SelectivityVector &rows, EvalCtx &context,
-            VectorPtr &result) override {
+  void eval(const SelectivityVector &rows, EvalCtx &context, VectorPtr &result) override {
     auto row = context.row();
     auto &children = row->children();
     auto rowType = asRowType(row->type());
@@ -109,12 +103,10 @@ public:
 
 class CallExpr : public Expr {
 public:
-  CallExpr(std::string name, std::vector<ExprPtr> inputs,
-           std::shared_ptr<const Type> type)
+  CallExpr(std::string name, std::vector<ExprPtr> inputs, std::shared_ptr<const Type> type)
       : Expr(type, std::move(inputs), name) {}
 
-  void eval(const SelectivityVector &rows, EvalCtx &context,
-            VectorPtr &result) override {
+  void eval(const SelectivityVector &rows, EvalCtx &context, VectorPtr &result) override {
     std::vector<VectorPtr> args;
     for (auto &input : inputs_) {
       VectorPtr res;
@@ -132,8 +124,7 @@ public:
   }
 };
 
-void collectFieldNames(const core::TypedExprPtr &expr,
-                       std::unordered_set<std::string> &fieldNames) {
+void collectFieldNames(const core::TypedExprPtr &expr, std::unordered_set<std::string> &fieldNames) {
   if (auto f = std::dynamic_pointer_cast<core::FieldAccessTypedExpr>(expr)) {
     fieldNames.insert(f->name());
     return;
@@ -164,31 +155,25 @@ ExprPtr compile(const core::TypedExprPtr &expr) {
     std::vector<std::string> captures;
     const auto &paramNames = lambda->signature()->names();
     for (const auto &name : fieldNames) {
-      if (std::find(paramNames.begin(), paramNames.end(), name) ==
-          paramNames.end()) {
+      if (std::find(paramNames.begin(), paramNames.end(), name) == paramNames.end()) {
         captures.push_back(name);
       }
     }
     auto bodyExpr = compile(lambda->body());
-    return std::make_shared<LambdaExpr>(lambda->signature(),
-                                        std::move(bodyExpr),
-                                        std::move(captures), lambda->type());
+    return std::make_shared<LambdaExpr>(lambda->signature(), std::move(bodyExpr), std::move(captures), lambda->type());
   }
   if (auto call = std::dynamic_pointer_cast<core::CallTypedExpr>(expr)) {
     std::vector<ExprPtr> args;
     for (auto &in : call->inputs()) {
       args.push_back(compile(in));
     }
-    return std::make_shared<CallExpr>(call->name(), std::move(args),
-                                      call->type());
+    return std::make_shared<CallExpr>(call->name(), std::move(args), call->type());
   }
   VELOX_FAIL("Unknown expr type");
 }
 
-void printExprTree(
-    const exec::Expr &expr, const std::string &indent, bool withStats,
-    std::stringstream &out,
-    std::unordered_map<const exec::Expr *, uint32_t> &uniqueExprs) {
+void printExprTree(const exec::Expr &expr, const std::string &indent, bool withStats, std::stringstream &out,
+                   std::unordered_map<const exec::Expr *, uint32_t> &uniqueExprs) {
 
   auto it = uniqueExprs.find(&expr);
   if (it != uniqueExprs.end()) {
@@ -213,8 +198,7 @@ void printExprTree(
 
 } // namespace
 
-ExprSet::ExprSet(std::vector<std::shared_ptr<core::ITypedExpr>> sources,
-                 core::ExecCtx *execCtx)
+ExprSet::ExprSet(std::vector<std::shared_ptr<core::ITypedExpr>> sources, core::ExecCtx *execCtx)
     : sources_(std::move(sources)), execCtx_(execCtx) {
   for (auto &source : sources_) {
     exprs_.push_back(compile(source));
@@ -223,8 +207,7 @@ ExprSet::ExprSet(std::vector<std::shared_ptr<core::ITypedExpr>> sources,
 
 ExprSet::~ExprSet() {}
 
-void ExprSet::eval(const SelectivityVector &rows, EvalCtx &context,
-                   std::vector<VectorPtr> &result) {
+void ExprSet::eval(const SelectivityVector &rows, EvalCtx &context, std::vector<VectorPtr> &result) {
   result.resize(exprs_.size());
   for (size_t i = 0; i < exprs_.size(); ++i) {
     exprs_[i]->eval(rows, context, result[i]);

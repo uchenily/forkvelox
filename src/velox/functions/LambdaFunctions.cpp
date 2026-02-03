@@ -12,15 +12,12 @@ using namespace facebook::velox::exec;
 
 namespace {
 
-VectorPtr sliceElements(const VectorPtr &elements, vector_size_t offset,
-                        vector_size_t size, memory::MemoryPool *pool) {
+VectorPtr sliceElements(const VectorPtr &elements, vector_size_t offset, vector_size_t size, memory::MemoryPool *pool) {
   auto simple = std::dynamic_pointer_cast<SimpleVector<int64_t>>(elements);
-  VELOX_CHECK_NOT_NULL(simple.get(),
-                       "transform supports ARRAY<BIGINT> in ForkVelox");
+  VELOX_CHECK_NOT_NULL(simple.get(), "transform supports ARRAY<BIGINT> in ForkVelox");
 
   auto buffer = AlignedBuffer::allocate(size * sizeof(int64_t), pool);
-  auto flat = std::make_shared<FlatVector<int64_t>>(pool, BIGINT(), nullptr,
-                                                    size, buffer);
+  auto flat = std::make_shared<FlatVector<int64_t>>(pool, BIGINT(), nullptr, size, buffer);
   auto *raw = flat->mutableRawValues();
   for (vector_size_t i = 0; i < size; ++i) {
     raw[i] = simple->valueAt(offset + i);
@@ -30,8 +27,7 @@ VectorPtr sliceElements(const VectorPtr &elements, vector_size_t offset,
 
 class TransformFunction : public VectorFunction {
 public:
-  void apply(const SelectivityVector &rows, std::vector<VectorPtr> &args,
-             const TypePtr &outputType, EvalCtx &context,
+  void apply(const SelectivityVector &rows, std::vector<VectorPtr> &args, const TypePtr &outputType, EvalCtx &context,
              VectorPtr &result) const override {
     VELOX_CHECK_EQ(args.size(), 2, "transform expects 2 arguments");
 
@@ -39,8 +35,7 @@ public:
     VELOX_CHECK_NOT_NULL(arrayVector.get(), "transform expects ARRAY input");
 
     auto functionVector = std::dynamic_pointer_cast<FunctionVector>(args[1]);
-    VELOX_CHECK_NOT_NULL(functionVector.get(),
-                         "transform expects lambda input");
+    VELOX_CHECK_NOT_NULL(functionVector.get(), "transform expects lambda input");
 
     const auto rowCount = rows.size();
     std::vector<int32_t> offsets(rowCount, 0);
@@ -61,19 +56,14 @@ public:
           return;
         }
 
-        auto elementVector =
-            sliceElements(arrayVector->elements(), arrayVector->offsetAt(row),
-                          size, context.pool());
+        auto elementVector = sliceElements(arrayVector->elements(), arrayVector->offsetAt(row), size, context.pool());
 
         VectorPtr lambdaResult;
         SelectivityVector elementRows(size, true);
-        entry.callable->apply(row, elementRows, context, {elementVector},
-                              lambdaResult);
+        entry.callable->apply(row, elementRows, context, {elementVector}, lambdaResult);
 
-        auto outValues =
-            std::dynamic_pointer_cast<SimpleVector<int64_t>>(lambdaResult);
-        VELOX_CHECK_NOT_NULL(outValues.get(),
-                             "transform expects lambda to return BIGINT");
+        auto outValues = std::dynamic_pointer_cast<SimpleVector<int64_t>>(lambdaResult);
+        VELOX_CHECK_NOT_NULL(outValues.get(), "transform expects lambda to return BIGINT");
 
         for (vector_size_t i = 0; i < size; ++i) {
           resultValues.push_back(outValues->valueAt(i));
@@ -81,34 +71,25 @@ public:
       });
     }
 
-    auto offsetsBuffer =
-        AlignedBuffer::allocate(rowCount * sizeof(int32_t), context.pool());
-    auto sizesBuffer =
-        AlignedBuffer::allocate(rowCount * sizeof(int32_t), context.pool());
-    std::memcpy(offsetsBuffer->asMutable<uint8_t>(), offsets.data(),
-                offsetsBuffer->size());
-    std::memcpy(sizesBuffer->asMutable<uint8_t>(), sizes.data(),
-                sizesBuffer->size());
+    auto offsetsBuffer = AlignedBuffer::allocate(rowCount * sizeof(int32_t), context.pool());
+    auto sizesBuffer = AlignedBuffer::allocate(rowCount * sizeof(int32_t), context.pool());
+    std::memcpy(offsetsBuffer->asMutable<uint8_t>(), offsets.data(), offsetsBuffer->size());
+    std::memcpy(sizesBuffer->asMutable<uint8_t>(), sizes.data(), sizesBuffer->size());
 
-    auto valuesBuffer = AlignedBuffer::allocate(
-        resultValues.size() * sizeof(int64_t), context.pool());
-    std::memcpy(valuesBuffer->asMutable<uint8_t>(), resultValues.data(),
-                valuesBuffer->size());
+    auto valuesBuffer = AlignedBuffer::allocate(resultValues.size() * sizeof(int64_t), context.pool());
+    std::memcpy(valuesBuffer->asMutable<uint8_t>(), resultValues.data(), valuesBuffer->size());
 
-    auto values = std::make_shared<FlatVector<int64_t>>(
-        context.pool(), BIGINT(), nullptr,
-        static_cast<vector_size_t>(resultValues.size()), valuesBuffer);
+    auto values = std::make_shared<FlatVector<int64_t>>(context.pool(), BIGINT(), nullptr,
+                                                        static_cast<vector_size_t>(resultValues.size()), valuesBuffer);
 
-    result = std::make_shared<ArrayVector>(context.pool(), outputType, nullptr,
-                                           rowCount, offsetsBuffer, sizesBuffer,
+    result = std::make_shared<ArrayVector>(context.pool(), outputType, nullptr, rowCount, offsetsBuffer, sizesBuffer,
                                            values);
   }
 };
 
 class FilterFunction : public VectorFunction {
 public:
-  void apply(const SelectivityVector &rows, std::vector<VectorPtr> &args,
-             const TypePtr &outputType, EvalCtx &context,
+  void apply(const SelectivityVector &rows, std::vector<VectorPtr> &args, const TypePtr &outputType, EvalCtx &context,
              VectorPtr &result) const override {
     VELOX_CHECK_EQ(args.size(), 2, "filter expects 2 arguments");
 
@@ -137,24 +118,17 @@ public:
           return;
         }
 
-        auto elementVector =
-            sliceElements(arrayVector->elements(), arrayVector->offsetAt(row),
-                          size, context.pool());
+        auto elementVector = sliceElements(arrayVector->elements(), arrayVector->offsetAt(row), size, context.pool());
 
         VectorPtr lambdaResult;
         SelectivityVector elementRows(size, true);
-        entry.callable->apply(row, elementRows, context, {elementVector},
-                              lambdaResult);
+        entry.callable->apply(row, elementRows, context, {elementVector}, lambdaResult);
 
-        auto predicate =
-            std::dynamic_pointer_cast<SimpleVector<int32_t>>(lambdaResult);
-        VELOX_CHECK_NOT_NULL(predicate.get(),
-                             "filter expects lambda to return BOOLEAN");
+        auto predicate = std::dynamic_pointer_cast<SimpleVector<int32_t>>(lambdaResult);
+        VELOX_CHECK_NOT_NULL(predicate.get(), "filter expects lambda to return BOOLEAN");
 
-        auto elementValues =
-            std::dynamic_pointer_cast<SimpleVector<int64_t>>(elementVector);
-        VELOX_CHECK_NOT_NULL(elementValues.get(),
-                             "filter supports ARRAY<BIGINT> in ForkVelox");
+        auto elementValues = std::dynamic_pointer_cast<SimpleVector<int64_t>>(elementVector);
+        VELOX_CHECK_NOT_NULL(elementValues.get(), "filter supports ARRAY<BIGINT> in ForkVelox");
 
         for (vector_size_t i = 0; i < size; ++i) {
           if (predicate->isNullAt(i)) {
@@ -168,26 +142,18 @@ public:
       });
     }
 
-    auto offsetsBuffer =
-        AlignedBuffer::allocate(rowCount * sizeof(int32_t), context.pool());
-    auto sizesBuffer =
-        AlignedBuffer::allocate(rowCount * sizeof(int32_t), context.pool());
-    std::memcpy(offsetsBuffer->asMutable<uint8_t>(), offsets.data(),
-                offsetsBuffer->size());
-    std::memcpy(sizesBuffer->asMutable<uint8_t>(), sizes.data(),
-                sizesBuffer->size());
+    auto offsetsBuffer = AlignedBuffer::allocate(rowCount * sizeof(int32_t), context.pool());
+    auto sizesBuffer = AlignedBuffer::allocate(rowCount * sizeof(int32_t), context.pool());
+    std::memcpy(offsetsBuffer->asMutable<uint8_t>(), offsets.data(), offsetsBuffer->size());
+    std::memcpy(sizesBuffer->asMutable<uint8_t>(), sizes.data(), sizesBuffer->size());
 
-    auto valuesBuffer = AlignedBuffer::allocate(
-        resultValues.size() * sizeof(int64_t), context.pool());
-    std::memcpy(valuesBuffer->asMutable<uint8_t>(), resultValues.data(),
-                valuesBuffer->size());
+    auto valuesBuffer = AlignedBuffer::allocate(resultValues.size() * sizeof(int64_t), context.pool());
+    std::memcpy(valuesBuffer->asMutable<uint8_t>(), resultValues.data(), valuesBuffer->size());
 
-    auto values = std::make_shared<FlatVector<int64_t>>(
-        context.pool(), BIGINT(), nullptr,
-        static_cast<vector_size_t>(resultValues.size()), valuesBuffer);
+    auto values = std::make_shared<FlatVector<int64_t>>(context.pool(), BIGINT(), nullptr,
+                                                        static_cast<vector_size_t>(resultValues.size()), valuesBuffer);
 
-    result = std::make_shared<ArrayVector>(context.pool(), outputType, nullptr,
-                                           rowCount, offsetsBuffer, sizesBuffer,
+    result = std::make_shared<ArrayVector>(context.pool(), outputType, nullptr, rowCount, offsetsBuffer, sizesBuffer,
                                            values);
   }
 };

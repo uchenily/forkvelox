@@ -39,17 +39,14 @@ int main(int argc, char **argv) {
 
   std::mt19937 rng(std::random_device{}());
   for (int batch = 0; batch < numBatches; ++batch) {
-    auto buffer =
-        AlignedBuffer::allocate(batchSize * sizeof(int64_t), pool.get());
+    auto buffer = AlignedBuffer::allocate(batchSize * sizeof(int64_t), pool.get());
     auto *rawValues = buffer->asMutable<int64_t>();
     std::iota(rawValues, rawValues + batchSize, batch * batchSize);
     std::shuffle(rawValues, rawValues + batchSize, rng);
 
-    auto vector = std::make_shared<FlatVector<int64_t>>(
-        pool.get(), BIGINT(), nullptr, batchSize, buffer);
+    auto vector = std::make_shared<FlatVector<int64_t>>(pool.get(), BIGINT(), nullptr, batchSize, buffer);
     batches.push_back(
-        std::make_shared<RowVector>(pool.get(), rowType, nullptr, batchSize,
-                                    std::vector<VectorPtr>{vector}));
+        std::make_shared<RowVector>(pool.get(), rowType, nullptr, batchSize, std::vector<VectorPtr>{vector}));
   }
 
   const std::string exchangeId = "pipeline_split_exchange";
@@ -64,14 +61,11 @@ int main(int argc, char **argv) {
   builder.printPlanTree("PipelineSplit Plan");
   auto plan = builder.planNode();
 
-  auto task =
-      Task::create("pipeline_split_task", plan, core::QueryCtx::create(),
-                   Task::ExecutionMode::kParallel);
+  auto task = Task::create("pipeline_split_task", plan, core::QueryCtx::create(), Task::ExecutionMode::kParallel);
   task->setMaxDrivers(3);
 
   auto results = task->run();
-  std::cout << "Pipeline-split task produced " << results.size() << " batches."
-            << std::endl;
+  std::cout << "Pipeline-split task produced " << results.size() << " batches." << std::endl;
 
   std::vector<std::string> actualRows;
   for (const auto &batch : results) {

@@ -19,11 +19,9 @@ public:
   static constexpr std::string_view kNullValueString = "null";
 
 public:
-  BaseVector(memory::MemoryPool *pool, std::shared_ptr<const Type> type,
-             VectorEncoding::Simple encoding, BufferPtr nulls,
-             vector_size_t length)
-      : pool_(pool), type_(std::move(type)), encoding_(encoding),
-        nulls_(std::move(nulls)), length_(length) {}
+  BaseVector(memory::MemoryPool *pool, std::shared_ptr<const Type> type, VectorEncoding::Simple encoding,
+             BufferPtr nulls, vector_size_t length)
+      : pool_(pool), type_(std::move(type)), encoding_(encoding), nulls_(std::move(nulls)), length_(length) {}
 
   virtual ~BaseVector() = default;
 
@@ -50,17 +48,14 @@ public:
   // Virtuals
   virtual std::string toString(vector_size_t index) const = 0;
 
-  virtual int32_t compare(const BaseVector *other, vector_size_t index,
-                          vector_size_t otherIndex) const = 0;
+  virtual int32_t compare(const BaseVector *other, vector_size_t index, vector_size_t otherIndex) const = 0;
 
-  virtual void copy(const BaseVector *source, vector_size_t sourceIndex,
-                    vector_size_t targetIndex) = 0;
+  virtual void copy(const BaseVector *source, vector_size_t sourceIndex, vector_size_t targetIndex) = 0;
 
   // Returns a brief summary of the vector: [ENCODING TYPE: N elements, X nulls]
   virtual std::string toSummaryString() const {
     std::ostringstream out;
-    out << "[" << encoding_ << " " << type_->toString() << ": " << length_
-        << " elements, ";
+    out << "[" << encoding_ << " " << type_->toString() << ": " << length_ << " elements, ";
     if (!nulls_) {
       out << "no nulls";
     } else {
@@ -77,13 +72,10 @@ public:
   }
 
   // Returns the brief summary (matching Velox's toString() behavior)
-  std::string toString() const {
-    return toSummaryString() + "\n" + toString(0, length_);
-  }
+  std::string toString() const { return toSummaryString() + "\n" + toString(0, length_); }
 
   // Returns a range of values [from, to) with optional row numbers
-  std::string toString(vector_size_t from, vector_size_t to,
-                       const char *delimiter = "\n",
+  std::string toString(vector_size_t from, vector_size_t to, const char *delimiter = "\n",
                        bool includeRowNumbers = true) const {
     const auto start = std::max<vector_size_t>(0, std::min(from, length_));
     const auto end = std::max<vector_size_t>(0, std::min(to, length_));

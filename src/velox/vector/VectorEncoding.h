@@ -7,22 +7,9 @@
 namespace facebook::velox {
 
 namespace VectorEncoding {
-enum class Simple {
-  BIASED,
-  CONSTANT,
-  DICTIONARY,
-  FLAT,
-  SEQUENCE,
-  ROW,
-  MAP,
-  FLAT_MAP,
-  ARRAY,
-  LAZY,
-  FUNCTION
-};
+enum class Simple { BIASED, CONSTANT, DICTIONARY, FLAT, SEQUENCE, ROW, MAP, FLAT_MAP, ARRAY, LAZY, FUNCTION };
 
-inline std::ostream &operator<<(std::ostream &out,
-                                const VectorEncoding::Simple &type) {
+inline std::ostream &operator<<(std::ostream &out, const VectorEncoding::Simple &type) {
   switch (type) {
   case VectorEncoding::Simple::BIASED:
     return out << "BIASED";

@@ -18,9 +18,7 @@ class TpchConnector : public Connector {};
 
 class TpchConnectorFactory {
 public:
-  std::shared_ptr<TpchConnector>
-  newConnector(const std::string &id,
-               std::shared_ptr<config::ConfigBase> config) {
+  std::shared_ptr<TpchConnector> newConnector(const std::string &id, std::shared_ptr<config::ConfigBase> config) {
     return std::make_shared<TpchConnector>();
   }
 };

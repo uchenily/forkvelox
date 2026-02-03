@@ -40,9 +40,7 @@ public:
       done = true;
       return *this;
     }
-    Range<const uint8_t *> operator*() const {
-      return Range<const uint8_t *>(buf->data_.data(), buf->data_.size());
-    }
+    Range<const uint8_t *> operator*() const { return Range<const uint8_t *>(buf->data_.data(), buf->data_.size()); }
   };
 
   Iterator begin() const { return Iterator(this, false); }

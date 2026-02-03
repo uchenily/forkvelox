@@ -2,8 +2,7 @@
 
 namespace facebook::velox::exec {
 
-LocalExchangeQueue::LocalExchangeQueue(size_t numProducers)
-    : producersRemaining_(numProducers) {}
+LocalExchangeQueue::LocalExchangeQueue(size_t numProducers) : producersRemaining_(numProducers) {}
 
 void LocalExchangeQueue::enqueue(RowVectorPtr batch) {
   if (!batch) {

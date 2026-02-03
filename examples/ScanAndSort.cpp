@@ -23,37 +23,29 @@ int main(int argc, char **argv) {
   auto inputRowType = ROW({"my_col"}, {BIGINT()});
   const vector_size_t vectorSize = 10;
 
-  auto buffer =
-      AlignedBuffer::allocate(vectorSize * sizeof(int64_t), pool.get());
+  auto buffer = AlignedBuffer::allocate(vectorSize * sizeof(int64_t), pool.get());
   auto *rawValues = buffer->asMutable<int64_t>();
   std::iota(rawValues, rawValues + vectorSize, 0);
   std::mt19937 rng(std::random_device{}());
   std::shuffle(rawValues, rawValues + vectorSize, rng);
 
-  auto vector = std::make_shared<FlatVector<int64_t>>(
-      pool.get(), BIGINT(), nullptr, vectorSize, buffer);
+  auto vector = std::make_shared<FlatVector<int64_t>>(pool.get(), BIGINT(), nullptr, vectorSize, buffer);
   auto rowVector =
-      std::make_shared<RowVector>(pool.get(), inputRowType, nullptr, vectorSize,
-                                  std::vector<VectorPtr>{vector});
+      std::make_shared<RowVector>(pool.get(), inputRowType, nullptr, vectorSize, std::vector<VectorPtr>{vector});
 
   std::cout << "Input vector generated:" << std::endl;
   for (vector_size_t i = 0; i < rowVector->size(); ++i) {
     std::cout << rowVector->toString(i) << std::endl;
   }
 
-  std::filesystem::path tempDir =
-      std::filesystem::temp_directory_path() / "forkvelox_scan_and_sort";
+  std::filesystem::path tempDir = std::filesystem::temp_directory_path() / "forkvelox_scan_and_sort";
   std::filesystem::create_directories(tempDir);
   auto filePath = (tempDir / "scan_and_sort.tsv").string();
 
-  auto writerPlan =
-      PlanBuilder().values({rowVector}).tableWrite(filePath).planNode();
+  auto writerPlan = PlanBuilder().values({rowVector}).tableWrite(filePath).planNode();
   AssertQueryBuilder(writerPlan).copyResults(pool.get());
 
-  auto readPlan = PlanBuilder()
-                      .tableScan(inputRowType, filePath)
-                      .orderBy({"my_col"}, false)
-                      .planNode();
+  auto readPlan = PlanBuilder().tableScan(inputRowType, filePath).orderBy({"my_col"}, false).planNode();
   auto sorted = AssertQueryBuilder(readPlan).copyResults(pool.get());
 
   VELOX_CHECK(sorted, "ScanAndSort produced no output.");

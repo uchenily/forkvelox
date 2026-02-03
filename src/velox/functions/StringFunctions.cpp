@@ -14,8 +14,7 @@ using namespace facebook::velox::exec;
 
 class SubstrFunction : public VectorFunction {
 public:
-  void apply(const SelectivityVector &rows, std::vector<VectorPtr> &args,
-             const TypePtr &outputType, EvalCtx &context,
+  void apply(const SelectivityVector &rows, std::vector<VectorPtr> &args, const TypePtr &outputType, EvalCtx &context,
              VectorPtr &result) const override {
     auto input = std::static_pointer_cast<FlatVector<StringView>>(args[0]);
     auto startVec = std::static_pointer_cast<SimpleVector<int64_t>>(args[1]);
@@ -45,8 +44,7 @@ public:
 
     auto dataBuffer = AlignedBuffer::allocate(totalLen, pool);
     char *bufPtr = dataBuffer->asMutable<char>();
-    auto values =
-        AlignedBuffer::allocate(rows.size() * sizeof(StringView), pool);
+    auto values = AlignedBuffer::allocate(rows.size() * sizeof(StringView), pool);
     auto *rawValues = values->asMutable<StringView>();
 
     size_t offset = 0;
@@ -60,8 +58,7 @@ public:
       }
     });
 
-    auto vec = std::make_shared<FlatVector<StringView>>(
-        pool, VARCHAR(), nullptr, rows.size(), values);
+    auto vec = std::make_shared<FlatVector<StringView>>(pool, VARCHAR(), nullptr, rows.size(), values);
     vec->addStringBuffer(dataBuffer);
     result = vec;
   }
@@ -69,8 +66,7 @@ public:
 
 class UpperFunction : public VectorFunction {
 public:
-  void apply(const SelectivityVector &rows, std::vector<VectorPtr> &args,
-             const TypePtr &outputType, EvalCtx &context,
+  void apply(const SelectivityVector &rows, std::vector<VectorPtr> &args, const TypePtr &outputType, EvalCtx &context,
              VectorPtr &result) const override {
     auto input = std::dynamic_pointer_cast<FlatVector<StringView>>(args[0]);
 
@@ -89,8 +85,7 @@ public:
 
     auto dataBuffer = AlignedBuffer::allocate(totalLen, pool);
     char *bufPtr = dataBuffer->asMutable<char>();
-    auto values =
-        AlignedBuffer::allocate(rows.size() * sizeof(StringView), pool);
+    auto values = AlignedBuffer::allocate(rows.size() * sizeof(StringView), pool);
     auto *rawValues = values->asMutable<StringView>();
 
     size_t offset = 0;
@@ -100,8 +95,7 @@ public:
       offset += results[i].size();
     });
 
-    auto vec = std::make_shared<FlatVector<StringView>>(
-        pool, VARCHAR(), nullptr, rows.size(), values);
+    auto vec = std::make_shared<FlatVector<StringView>>(pool, VARCHAR(), nullptr, rows.size(), values);
     vec->addStringBuffer(dataBuffer);
     result = vec;
   }
@@ -109,8 +103,7 @@ public:
 
 class ConcatFunction : public VectorFunction {
 public:
-  void apply(const SelectivityVector &rows, std::vector<VectorPtr> &args,
-             const TypePtr &outputType, EvalCtx &context,
+  void apply(const SelectivityVector &rows, std::vector<VectorPtr> &args, const TypePtr &outputType, EvalCtx &context,
              VectorPtr &result) const override {
     auto left = std::dynamic_pointer_cast<FlatVector<StringView>>(args[0]);
     auto right = std::dynamic_pointer_cast<FlatVector<StringView>>(args[1]);
@@ -129,8 +122,7 @@ public:
 
     auto dataBuffer = AlignedBuffer::allocate(totalLen, pool);
     char *bufPtr = dataBuffer->asMutable<char>();
-    auto values =
-        AlignedBuffer::allocate(rows.size() * sizeof(StringView), pool);
+    auto values = AlignedBuffer::allocate(rows.size() * sizeof(StringView), pool);
     auto *rawValues = values->asMutable<StringView>();
 
     size_t offset = 0;
@@ -140,8 +132,7 @@ public:
       offset += results[i].size();
     });
 
-    auto vec = std::make_shared<FlatVector<StringView>>(
-        pool, VARCHAR(), nullptr, rows.size(), values);
+    auto vec = std::make_shared<FlatVector<StringView>>(pool, VARCHAR(), nullptr, rows.size(), values);
     vec->addStringBuffer(dataBuffer);
     result = vec;
   }

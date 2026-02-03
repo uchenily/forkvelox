@@ -57,8 +57,7 @@ public:
 
     if (std::isalpha(c) || c == '_') {
       size_t start = pos_;
-      while (pos_ < input_.size() &&
-             (std::isalnum(input_[pos_]) || input_[pos_] == '_'))
+      while (pos_ < input_.size() && (std::isalnum(input_[pos_]) || input_[pos_] == '_'))
         pos_++;
       return {TokenType::IDENTIFIER, input_.substr(start, pos_ - start)};
     }
@@ -191,8 +190,7 @@ private:
         break;
 
       auto right = parseAdditive();
-      left = std::make_shared<core::CallTypedExpr>(
-          UNKNOWN(), std::vector<core::TypedExprPtr>{left, right}, opName);
+      left = std::make_shared<core::CallTypedExpr>(UNKNOWN(), std::vector<core::TypedExprPtr>{left, right}, opName);
     }
     return left;
   }
@@ -209,8 +207,7 @@ private:
         break;
 
       auto right = parseMultiplicative();
-      left = std::make_shared<core::CallTypedExpr>(
-          UNKNOWN(), std::vector<core::TypedExprPtr>{left, right}, opName);
+      left = std::make_shared<core::CallTypedExpr>(UNKNOWN(), std::vector<core::TypedExprPtr>{left, right}, opName);
     }
     return left;
   }
@@ -229,8 +226,7 @@ private:
         break;
 
       auto right = parsePrimary();
-      left = std::make_shared<core::CallTypedExpr>(
-          UNKNOWN(), std::vector<core::TypedExprPtr>{left, right}, opName);
+      left = std::make_shared<core::CallTypedExpr>(UNKNOWN(), std::vector<core::TypedExprPtr>{left, right}, opName);
     }
     return left;
   }

@@ -39,17 +39,15 @@ int main(int argc, char **argv) {
 
   std::mt19937 rng(std::random_device{}());
   for (int batch = 0; batch < numBatches; ++batch) {
-    auto buffer =
-        AlignedBuffer::allocate(batchSize * sizeof(int64_t), pool.get());
+    auto buffer = AlignedBuffer::allocate(batchSize * sizeof(int64_t), pool.get());
     auto *rawValues = buffer->asMutable<int64_t>();
-    std::iota(rawValues, rawValues + batchSize, batch * batchSize);
+    std::iota(rawValues, rawValues + batchSize,
+              batch * batchSize); // [0, 1, 2, ... 5], [7, ..., 11], [13, ..., 17], [19, ..., 23]
     std::shuffle(rawValues, rawValues + batchSize, rng);
 
-    auto vector = std::make_shared<FlatVector<int64_t>>(
-        pool.get(), BIGINT(), nullptr, batchSize, buffer);
+    auto vector = std::make_shared<FlatVector<int64_t>>(pool.get(), BIGINT(), nullptr, batchSize, buffer);
     batches.push_back(
-        std::make_shared<RowVector>(pool.get(), rowType, nullptr, batchSize,
-                                    std::vector<VectorPtr>{vector}));
+        std::make_shared<RowVector>(pool.get(), rowType, nullptr, batchSize, std::vector<VectorPtr>{vector}));
   }
 
   // only one pipeline
@@ -58,13 +56,11 @@ int main(int argc, char **argv) {
   auto plan = builder.planNode();
   auto queryCtx = core::QueryCtx::create();
 
-  auto task = Task::create("parallel_values_task", plan, queryCtx,
-                           Task::ExecutionMode::kParallel);
+  auto task = Task::create("parallel_values_task", plan, queryCtx, Task::ExecutionMode::kParallel);
   task->setMaxDrivers(4);
 
   auto results = task->run();
-  std::cout << "Parallel task produced " << results.size() << " batches."
-            << std::endl;
+  std::cout << "Parallel task produced " << results.size() << " batches." << std::endl;
 
   std::vector<std::string> actualRows;
   for (const auto &batch : results) {
@@ -83,6 +79,8 @@ int main(int argc, char **argv) {
   for (int64_t value = 0; value < batchSize * numBatches; value += 2) {
     expectedRows.push_back("{" + std::to_string(value) + "}");
   }
+
+  // check
   std::sort(actualRows.begin(), actualRows.end());
   std::sort(expectedRows.begin(), expectedRows.end());
   VELOX_CHECK_EQ(actualRows.size(), expectedRows.size());

@@ -5,7 +5,8 @@
 
 namespace facebook::velox {
 
-template <typename T> class IntrusivePtr {
+template <typename T>
+class IntrusivePtr {
 public:
   IntrusivePtr() : ptr_(nullptr) {}
   IntrusivePtr(T *ptr) : ptr_(ptr) {
@@ -16,9 +17,7 @@ public:
     if (ptr_)
       ptr_->addRef();
   }
-  IntrusivePtr(IntrusivePtr &&other) noexcept : ptr_(other.ptr_) {
-    other.ptr_ = nullptr;
-  }
+  IntrusivePtr(IntrusivePtr &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
   ~IntrusivePtr() {
     if (ptr_)
       ptr_->release();
@@ -52,12 +51,8 @@ public:
   T &operator*() const { return *ptr_; }
   explicit operator bool() const { return ptr_ != nullptr; }
 
-  bool operator==(const IntrusivePtr &other) const {
-    return ptr_ == other.ptr_;
-  }
-  bool operator!=(const IntrusivePtr &other) const {
-    return ptr_ != other.ptr_;
-  }
+  bool operator==(const IntrusivePtr &other) const { return ptr_ == other.ptr_; }
+  bool operator!=(const IntrusivePtr &other) const { return ptr_ != other.ptr_; }
 
   void reset(T *ptr = nullptr) {
     if (ptr_ != ptr) {

@@ -39,17 +39,14 @@ public:
   virtual std::string toString() const = 0;
 
   bool isInteger() const {
-    return kind_ == TypeKind::INTEGER ||
-           kind_ == TypeKind::BIGINT; // Simplified
+    return kind_ == TypeKind::INTEGER || kind_ == TypeKind::BIGINT; // Simplified
   }
 
   bool isVarchar() const { return kind_ == TypeKind::VARCHAR; }
 
   bool isRow() const { return kind_ == TypeKind::ROW; }
 
-  virtual bool equivalent(const Type &other) const {
-    return kind_ == other.kind_;
-  }
+  virtual bool equivalent(const Type &other) const { return kind_ == other.kind_; }
 
 private:
   TypeKind kind_;
@@ -78,8 +75,7 @@ public:
 class RowType : public Type {
 public:
   RowType(std::vector<std::string> names, std::vector<TypePtr> children)
-      : Type(TypeKind::ROW), names_(std::move(names)),
-        children_(std::move(children)) {
+      : Type(TypeKind::ROW), names_(std::move(names)), children_(std::move(children)) {
     VELOX_CHECK_EQ(names_.size(), children_.size());
   }
 
@@ -122,14 +118,11 @@ private:
 
 class ArrayType : public Type {
 public:
-  explicit ArrayType(TypePtr elementType)
-      : Type(TypeKind::ARRAY), elementType_(std::move(elementType)) {}
+  explicit ArrayType(TypePtr elementType) : Type(TypeKind::ARRAY), elementType_(std::move(elementType)) {}
 
   const TypePtr &elementType() const { return elementType_; }
 
-  std::string toString() const override {
-    return "ARRAY<" + elementType_->toString() + ">";
-  }
+  std::string toString() const override { return "ARRAY<" + elementType_->toString() + ">"; }
 
   bool equivalent(const Type &other) const override {
     if (!Type::equivalent(other))
@@ -145,8 +138,7 @@ private:
 class FunctionType : public Type {
 public:
   FunctionType(std::vector<TypePtr> argumentTypes, TypePtr returnType)
-      : Type(TypeKind::FUNCTION), argumentTypes_(std::move(argumentTypes)),
-        returnType_(std::move(returnType)) {}
+      : Type(TypeKind::FUNCTION), argumentTypes_(std::move(argumentTypes)), returnType_(std::move(returnType)) {}
 
   const std::vector<TypePtr> &argumentTypes() const { return argumentTypes_; }
   const TypePtr &returnType() const { return returnType_; }
@@ -189,21 +181,12 @@ public:
 
 using RowTypePtr = std::shared_ptr<const RowType>;
 
-inline std::shared_ptr<const Type> INTEGER() {
-  return std::make_shared<IntegerType>();
-}
-inline std::shared_ptr<const Type> BIGINT() {
-  return std::make_shared<BigIntType>();
-}
-inline std::shared_ptr<const Type> VARCHAR() {
-  return std::make_shared<VarcharType>();
-}
-inline std::shared_ptr<const Type> UNKNOWN() {
-  return std::make_shared<UnknownType>();
-}
+inline std::shared_ptr<const Type> INTEGER() { return std::make_shared<IntegerType>(); }
+inline std::shared_ptr<const Type> BIGINT() { return std::make_shared<BigIntType>(); }
+inline std::shared_ptr<const Type> VARCHAR() { return std::make_shared<VarcharType>(); }
+inline std::shared_ptr<const Type> UNKNOWN() { return std::make_shared<UnknownType>(); }
 
-inline std::shared_ptr<const RowType> ROW(std::vector<std::string> names,
-                                          std::vector<TypePtr> types) {
+inline std::shared_ptr<const RowType> ROW(std::vector<std::string> names, std::vector<TypePtr> types) {
   return std::make_shared<RowType>(std::move(names), std::move(types));
 }
 
@@ -211,14 +194,11 @@ inline std::shared_ptr<const ArrayType> ARRAY(TypePtr elementType) {
   return std::make_shared<ArrayType>(std::move(elementType));
 }
 
-inline std::shared_ptr<const FunctionType>
-FUNCTION(std::vector<TypePtr> argumentTypes, TypePtr returnType) {
-  return std::make_shared<FunctionType>(std::move(argumentTypes),
-                                        std::move(returnType));
+inline std::shared_ptr<const FunctionType> FUNCTION(std::vector<TypePtr> argumentTypes, TypePtr returnType) {
+  return std::make_shared<FunctionType>(std::move(argumentTypes), std::move(returnType));
 }
 
-inline std::shared_ptr<const RowType>
-asRowType(const std::shared_ptr<const Type> &type) {
+inline std::shared_ptr<const RowType> asRowType(const std::shared_ptr<const Type> &type) {
   return std::dynamic_pointer_cast<const RowType>(type);
 }
 
@@ -228,10 +208,9 @@ asRowType(const std::shared_ptr<const Type> &type) {
 /// @param stringifyElement Function to call to append individual elements.
 /// Will be called up to 'limit' times.
 /// @param limit Maximum number of elements to include in the result.
-inline std::string stringifyTruncatedElementList(
-    size_t size,
-    const std::function<void(std::stringstream &, size_t)> &stringifyElement,
-    size_t limit = 5) {
+inline std::string
+stringifyTruncatedElementList(size_t size, const std::function<void(std::stringstream &, size_t)> &stringifyElement,
+                              size_t limit = 5) {
   if (size == 0) {
     return "<empty>";
   }

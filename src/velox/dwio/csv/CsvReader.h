@@ -21,8 +21,7 @@ class CsvRowReader;
 
 class CsvReader {
 public:
-  CsvReader(std::shared_ptr<ReadFile> file, memory::MemoryPool *pool,
-            CsvReadOptions options = {});
+  CsvReader(std::shared_ptr<ReadFile> file, memory::MemoryPool *pool, CsvReadOptions options = {});
 
   std::unique_ptr<CsvRowReader> createRowReader() const;
   const RowTypePtr &rowType() const { return rowType_; }
@@ -38,8 +37,7 @@ private:
 
 class CsvRowReader {
 public:
-  CsvRowReader(std::shared_ptr<ReadFile> file, RowTypePtr rowType,
-               memory::MemoryPool *pool, CsvReadOptions options,
+  CsvRowReader(std::shared_ptr<ReadFile> file, RowTypePtr rowType, memory::MemoryPool *pool, CsvReadOptions options,
                std::string firstDataLine, bool hasFirstDataLine);
 
   bool next(size_t batchSize, RowVectorPtr &out);

@@ -80,19 +80,15 @@ struct StringView {
 
     // Compare prefix (first 4 bytes)
     // inline_[0..3] aligns with external_.prefix_
-    if (std::memcmp(value_.inline_, other.value_.inline_,
-                    std::min((uint32_t)size_, kPrefixSize)) != 0)
+    if (std::memcmp(value_.inline_, other.value_.inline_, std::min((uint32_t)size_, kPrefixSize)) != 0)
       return false;
 
     if (isInline()) {
       if (size_ <= kPrefixSize)
         return true;
-      return std::memcmp(value_.inline_ + kPrefixSize,
-                         other.value_.inline_ + kPrefixSize,
-                         size_ - kPrefixSize) == 0;
+      return std::memcmp(value_.inline_ + kPrefixSize, other.value_.inline_ + kPrefixSize, size_ - kPrefixSize) == 0;
     } else {
-      return std::memcmp(value_.external_.data_ + kPrefixSize,
-                         other.value_.external_.data_ + kPrefixSize,
+      return std::memcmp(value_.external_.data_ + kPrefixSize, other.value_.external_.data_ + kPrefixSize,
                          size_ - kPrefixSize) == 0;
     }
   }

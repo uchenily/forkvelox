@@ -16,10 +16,8 @@ namespace {
 
 std::string trim(std::string value) {
   auto notSpace = [](unsigned char c) { return !std::isspace(c); };
-  value.erase(value.begin(),
-              std::find_if(value.begin(), value.end(), notSpace));
-  value.erase(std::find_if(value.rbegin(), value.rend(), notSpace).base(),
-              value.end());
+  value.erase(value.begin(), std::find_if(value.begin(), value.end(), notSpace));
+  value.erase(std::find_if(value.rbegin(), value.rend(), notSpace).base(), value.end());
   return value;
 }
 
@@ -60,36 +58,30 @@ TypePtr parseType(const std::string &value) {
   VELOX_FAIL("Unsupported type: {}", value);
 }
 
-RowVectorPtr
-buildRowVector(memory::MemoryPool *pool, const RowTypePtr &rowType,
-               const std::vector<std::vector<int64_t>> &int64Columns,
-               const std::vector<std::vector<int32_t>> &int32Columns,
-               const std::vector<std::vector<std::string>> &stringColumns,
-               const std::vector<TypeKind> &columnKinds) {
+RowVectorPtr buildRowVector(memory::MemoryPool *pool, const RowTypePtr &rowType,
+                            const std::vector<std::vector<int64_t>> &int64Columns,
+                            const std::vector<std::vector<int32_t>> &int32Columns,
+                            const std::vector<std::vector<std::string>> &stringColumns,
+                            const std::vector<TypeKind> &columnKinds) {
   std::vector<VectorPtr> children;
   children.reserve(rowType->size());
 
   for (size_t i = 0; i < rowType->size(); ++i) {
     if (columnKinds[i] == TypeKind::BIGINT) {
       const auto &data = int64Columns[i];
-      auto buffer =
-          AlignedBuffer::allocate(data.size() * sizeof(int64_t), pool);
-      std::memcpy(buffer->as_mutable_uint8_t(), data.data(),
-                  data.size() * sizeof(int64_t));
-      children.push_back(std::make_shared<FlatVector<int64_t>>(
-          pool, rowType->childAt(i), nullptr, data.size(), buffer));
+      auto buffer = AlignedBuffer::allocate(data.size() * sizeof(int64_t), pool);
+      std::memcpy(buffer->as_mutable_uint8_t(), data.data(), data.size() * sizeof(int64_t));
+      children.push_back(
+          std::make_shared<FlatVector<int64_t>>(pool, rowType->childAt(i), nullptr, data.size(), buffer));
     } else if (columnKinds[i] == TypeKind::INTEGER) {
       const auto &data = int32Columns[i];
-      auto buffer =
-          AlignedBuffer::allocate(data.size() * sizeof(int32_t), pool);
-      std::memcpy(buffer->as_mutable_uint8_t(), data.data(),
-                  data.size() * sizeof(int32_t));
-      children.push_back(std::make_shared<FlatVector<int32_t>>(
-          pool, rowType->childAt(i), nullptr, data.size(), buffer));
+      auto buffer = AlignedBuffer::allocate(data.size() * sizeof(int32_t), pool);
+      std::memcpy(buffer->as_mutable_uint8_t(), data.data(), data.size() * sizeof(int32_t));
+      children.push_back(
+          std::make_shared<FlatVector<int32_t>>(pool, rowType->childAt(i), nullptr, data.size(), buffer));
     } else if (columnKinds[i] == TypeKind::VARCHAR) {
       const auto &data = stringColumns[i];
-      auto values =
-          AlignedBuffer::allocate(data.size() * sizeof(StringView), pool);
+      auto values = AlignedBuffer::allocate(data.size() * sizeof(StringView), pool);
       auto *rawValues = values->asMutable<StringView>();
       size_t totalSize = 0;
       for (const auto &value : data) {
@@ -104,8 +96,7 @@ buildRowVector(memory::MemoryPool *pool, const RowTypePtr &rowType,
         rawValues[row] = StringView(cursor + offset, value.size());
         offset += value.size();
       }
-      auto vector = std::make_shared<FlatVector<StringView>>(
-          pool, rowType->childAt(i), nullptr, data.size(), values);
+      auto vector = std::make_shared<FlatVector<StringView>>(pool, rowType->childAt(i), nullptr, data.size(), values);
       vector->addStringBuffer(dataBuffer);
       children.push_back(vector);
     } else {
@@ -117,8 +108,7 @@ buildRowVector(memory::MemoryPool *pool, const RowTypePtr &rowType,
   if (!children.empty()) {
     rowCount = children[0]->size();
   }
-  return std::make_shared<RowVector>(pool, rowType, nullptr, rowCount,
-                                     std::move(children));
+  return std::make_shared<RowVector>(pool, rowType, nullptr, rowCount, std::move(children));
 }
 
 std::unique_ptr<std::istream> openFileAsStream(const ReadFile &file) {
@@ -129,16 +119,14 @@ std::unique_ptr<std::istream> openFileAsStream(const ReadFile &file) {
 
 } // namespace
 
-CsvReader::CsvReader(std::shared_ptr<ReadFile> file, memory::MemoryPool *pool,
-                     CsvReadOptions options)
+CsvReader::CsvReader(std::shared_ptr<ReadFile> file, memory::MemoryPool *pool, CsvReadOptions options)
     : file_(std::move(file)), pool_(pool), options_(options) {
   VELOX_CHECK(file_ != nullptr, "ReadFile must not be null");
   auto input = openFileAsStream(*file_);
 
   std::string line;
   if (options_.hasHeader) {
-    VELOX_CHECK(std::getline(*input, line), "Missing header line in {}",
-                file_->getName());
+    VELOX_CHECK(std::getline(*input, line), "Missing header line in {}", file_->getName());
   } else {
     VELOX_FAIL("CSV reader requires header line with column names");
   }
@@ -146,8 +134,7 @@ CsvReader::CsvReader(std::shared_ptr<ReadFile> file, memory::MemoryPool *pool,
 
   std::vector<TypePtr> types;
   if (options_.hasTypes) {
-    VELOX_CHECK(std::getline(*input, line), "Missing types line in {}",
-                file_->getName());
+    VELOX_CHECK(std::getline(*input, line), "Missing types line in {}", file_->getName());
     auto typeNames = splitCsv(line, options_.delimiter);
     bool allTypes = typeNames.size() == names.size();
     if (allTypes) {
@@ -179,16 +166,13 @@ CsvReader::CsvReader(std::shared_ptr<ReadFile> file, memory::MemoryPool *pool,
 }
 
 std::unique_ptr<CsvRowReader> CsvReader::createRowReader() const {
-  return std::make_unique<CsvRowReader>(file_, rowType_, pool_, options_,
-                                        firstDataLine_, hasFirstDataLine_);
+  return std::make_unique<CsvRowReader>(file_, rowType_, pool_, options_, firstDataLine_, hasFirstDataLine_);
 }
 
-CsvRowReader::CsvRowReader(std::shared_ptr<ReadFile> file, RowTypePtr rowType,
-                           memory::MemoryPool *pool, CsvReadOptions options,
-                           std::string firstDataLine, bool hasFirstDataLine)
-    : file_(std::move(file)), rowType_(std::move(rowType)), pool_(pool),
-      options_(options), firstDataLine_(std::move(firstDataLine)),
-      hasFirstDataLine_(hasFirstDataLine) {}
+CsvRowReader::CsvRowReader(std::shared_ptr<ReadFile> file, RowTypePtr rowType, memory::MemoryPool *pool,
+                           CsvReadOptions options, std::string firstDataLine, bool hasFirstDataLine)
+    : file_(std::move(file)), rowType_(std::move(rowType)), pool_(pool), options_(options),
+      firstDataLine_(std::move(firstDataLine)), hasFirstDataLine_(hasFirstDataLine) {}
 
 void CsvRowReader::ensureInitialized() {
   if (initialized_) {
@@ -198,12 +182,10 @@ void CsvRowReader::ensureInitialized() {
   input_ = openFileAsStream(*file_);
   std::string line;
   if (options_.hasHeader) {
-    VELOX_CHECK(std::getline(*input_, line), "Missing header line in {}",
-                file_->getName());
+    VELOX_CHECK(std::getline(*input_, line), "Missing header line in {}", file_->getName());
   }
   if (options_.hasTypes) {
-    VELOX_CHECK(std::getline(*input_, line), "Missing types line in {}",
-                file_->getName());
+    VELOX_CHECK(std::getline(*input_, line), "Missing types line in {}", file_->getName());
   }
   initialized_ = true;
 }
@@ -259,8 +241,7 @@ bool CsvRowReader::next(size_t batchSize, RowVectorPtr &out) {
     return false;
   }
 
-  out = buildRowVector(pool_, rowType_, int64Columns, int32Columns,
-                       stringColumns, columnKinds);
+  out = buildRowVector(pool_, rowType_, int64Columns, int32Columns, stringColumns, columnKinds);
   return true;
 }
 

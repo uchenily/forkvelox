@@ -5,8 +5,7 @@ namespace facebook::velox::core {
 
 class ExecCtx {
 public:
-  ExecCtx(memory::MemoryPool *pool, QueryCtx *queryCtx)
-      : pool_(pool), queryCtx_(queryCtx) {}
+  ExecCtx(memory::MemoryPool *pool, QueryCtx *queryCtx) : pool_(pool), queryCtx_(queryCtx) {}
 
   memory::MemoryPool *pool() const { return pool_; }
   QueryCtx *queryCtx() const { return queryCtx_; }
