@@ -3,8 +3,8 @@
 ## Project Structure & Module Organization
 - `src/`: ForkVelox implementation and examples.
   - `src/velox/`: core engine modules (exec, type, vector, dwio, common).
-  - `src/examples/`: runnable examples.
 - `velox/`: upstream Velox reference sources and docs (read-only reference).
+- `examples/`: runnable examples.
 - `build/`: CMake/Ninja build output.
 - `docs/`: project documentation.
 
@@ -26,11 +26,11 @@
 - Language: C++23.
 - Indentation: 2 spaces for C++ code in `src/`.
 - Naming: `CamelCase` for types, `lowerCamelCase` for methods, `kConstant` for constants.
-- Prefer small, focused files; keep headers in `src/velox/**` and examples in `src/examples/`.
+- Prefer small, focused files; keep headers in `src/velox/**` and examples in `examples/`.
 
 ## Testing Guidelines
 - No formal test framework wired in this repo.
-- Add or update examples under `src/examples/` to validate new features.
+- Add or update examples under `examples/` to validate new features.
 
 ## Commit & Pull Request Guidelines
 - No explicit commit message convention is documented in this repo.

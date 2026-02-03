@@ -27,5 +27,3 @@ add_library(velox_common
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(velox_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_subdirectory(examples)
