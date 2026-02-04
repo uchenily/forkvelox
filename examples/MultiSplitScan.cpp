@@ -45,13 +45,14 @@ int main(int argc, char **argv) {
   const std::string file1 = "./data/multi_split_1.rv";
   const std::string file2 = "./data/multi_split_2.rv";
 
-  // auto batch1 = makeRowVector(pool.get(), {1, 2, 3});
-  // auto batch2 = makeRowVector(pool.get(), {4, 5, 6});
-  //
-  // dwio::common::RowVectorFile::write(*batch1, file1);
-  // dwio::common::RowVectorFile::write(*batch2, file2);
-  auto batch1 = dwio::common::RowVectorFile::read(pool.get(), file1);
-  auto batch2 = dwio::common::RowVectorFile::read(pool.get(), file2);
+  auto batch1 = makeRowVector(pool.get(), {1, 2, 3});
+  auto batch2 = makeRowVector(pool.get(), {4, 5, 6});
+
+  dwio::common::RowVectorFile::write(*batch1, file1);
+  dwio::common::RowVectorFile::write(*batch2, file2);
+
+  // auto batch1 = dwio::common::RowVectorFile::read(pool.get(), file1);
+  // auto batch2 = dwio::common::RowVectorFile::read(pool.get(), file2);
 
   core::PlanNodeId scanId;
   auto plan = PlanBuilder().tableScan(asRowType(batch1->type()), file1).capturePlanNodeId(scanId).planNode();

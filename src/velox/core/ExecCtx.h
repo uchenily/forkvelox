@@ -3,6 +3,7 @@
 
 namespace facebook::velox::core {
 
+/// 执行上下文, 包括查询上下文
 class ExecCtx {
 public:
   ExecCtx(memory::MemoryPool *pool, QueryCtx *queryCtx) : pool_(pool), queryCtx_(queryCtx) {}

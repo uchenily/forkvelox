@@ -1,5 +1,6 @@
 #pragma once
 
+#include "velox/common/base/Exceptions.h"
 #include "velox/common/base/IntrusivePtr.h"
 #include "velox/common/memory/Memory.h"
 #include <atomic>
@@ -45,21 +46,22 @@ using BufferPtr = IntrusivePtr<Buffer>;
 class AlignedBuffer : public Buffer {
 public:
   AlignedBuffer(memory::MemoryPool *pool, uint64_t size) : pool_(pool), size_(size), capacity_(size) {
-    if (pool_) {
-      data_ = static_cast<uint8_t *>(pool_->allocate(capacity_));
-    } else {
-      // Fallback or error? Velox usually requires pool.
-      data_ = static_cast<uint8_t *>(std::malloc(capacity_));
-    }
+    // if (pool_) {
+    VELOX_CHECK(pool_ != nullptr, "No memory pool");
+    data_ = static_cast<uint8_t *>(pool_->allocate(capacity_));
+    // } else {
+    //   // Fallback or error? Velox usually requires pool.
+    //   data_ = static_cast<uint8_t *>(std::malloc(capacity_));
+    // }
   }
 
   ~AlignedBuffer() override {
     if (data_) {
-      if (pool_) {
-        pool_->free(data_, capacity_);
-      } else {
-        std::free(data_);
-      }
+      // if (pool_) {
+      pool_->free(data_, capacity_);
+      // } else {
+      //   std::free(data_);
+      // }
     }
   }
 

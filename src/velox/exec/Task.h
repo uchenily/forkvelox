@@ -47,7 +47,7 @@ private:
                std::shared_ptr<std::latch> done);
 
   std::string taskId_;
-  core::PlanNodePtr plan_;
+  core::PlanNodePtr plan_; // tree根节点
   std::shared_ptr<core::QueryCtx> queryCtx_;
   ExecutionMode mode_;
   size_t maxDrivers_{1};
