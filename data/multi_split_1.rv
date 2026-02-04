@@ -1,4 +1,4 @@
-# schema: my_col:BIGINT
-1
-2
-3
+# schema: id:BIGINT,count:INTEGER,name:VARCHAR
+1	10	alpha
+2	20	beta
+3	30	gamma

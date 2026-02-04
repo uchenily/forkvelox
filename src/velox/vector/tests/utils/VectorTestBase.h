@@ -1,10 +1,14 @@
 #pragma once
+#include "velox/common/base/BitUtil.h"
 #include "velox/common/memory/Memory.h"
 #include "velox/core/ExecCtx.h"
 #include "velox/core/QueryCtx.h"
 #include "velox/type/StringView.h"
 #include "velox/vector/ComplexVector.h"
 #include "velox/vector/FlatVector.h"
+
+#include <cstring>
+#include <functional>
 
 namespace facebook::velox::test {
 
@@ -69,13 +73,41 @@ public:
     }
   }
 
-  std::shared_ptr<RowVector> makeRowVector(const std::vector<std::string> &names,
-                                           const std::vector<VectorPtr> &children) {
+  std::shared_ptr<RowVector> makeRowVector(
+      const std::vector<std::string> &names,
+      const std::vector<VectorPtr> &children,
+      std::function<bool(vector_size_t /*row*/)> isNullAt = nullptr) {
+    std::vector<std::string> childNames = names;
+    if (childNames.empty()) {
+      childNames.reserve(children.size());
+      for (size_t i = 0; i < children.size(); ++i) {
+        childNames.push_back("c" + std::to_string(i));
+      }
+    }
+
     std::vector<TypePtr> types;
-    for (auto &c : children)
-      types.push_back(c->type());
-    auto rowType = ROW(names, types);
-    return std::make_shared<RowVector>(pool(), rowType, nullptr, children[0]->size(), children);
+    types.reserve(children.size());
+    for (auto &child : children) {
+      types.push_back(child->type());
+    }
+
+    auto rowType = ROW(std::move(childNames), std::move(types));
+    const vector_size_t size = children.empty() ? 0 : children.front()->size();
+
+    BufferPtr nulls;
+    if (isNullAt && size > 0) {
+      const size_t bytes = bits::nwords(size) * sizeof(uint64_t);
+      nulls = AlignedBuffer::allocate(bytes, pool());
+      std::memset(nulls->as_mutable_uint8_t(), 0, bytes);
+      auto rawNulls = nulls->asMutable<uint64_t>();
+      for (vector_size_t i = 0; i < size; ++i) {
+        if (isNullAt(i)) {
+          bits::setBit(rawNulls, i, true);
+        }
+      }
+    }
+
+    return std::make_shared<RowVector>(pool(), rowType, std::move(nulls), size, children);
   }
 
   std::shared_ptr<memory::MemoryPool> pool_;

@@ -1,4 +1,4 @@
-# schema: my_col:BIGINT
-4
-5
-6
+# schema: id:BIGINT,count:INTEGER,name:VARCHAR
+4	40	delta
+5	50	epsilon
+6	60	zeta
