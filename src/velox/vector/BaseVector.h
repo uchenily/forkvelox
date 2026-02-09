@@ -2,12 +2,15 @@
 
 #include "velox/buffer/Buffer.h"
 #include "velox/common/base/BitUtil.h"
+#include "velox/common/base/Exceptions.h"
 #include "velox/type/Type.h"
 #include "velox/vector/VectorEncoding.h"
 #include <algorithm>
 #include <memory>
 #include <optional>
 #include <sstream>
+#include <type_traits>
+#include <typeinfo>
 #include <vector>
 
 namespace facebook::velox {
@@ -29,6 +32,32 @@ public:
   const std::shared_ptr<const Type> &type() const { return type_; }
   memory::MemoryPool *pool() const { return pool_; }
   vector_size_t size() const { return length_; }
+
+  template <typename T>
+  T *as() {
+    static_assert(std::is_base_of_v<BaseVector, T>);
+    return dynamic_cast<T *>(this);
+  }
+
+  template <typename T>
+  const T *as() const {
+    static_assert(std::is_base_of_v<BaseVector, T>);
+    return dynamic_cast<const T *>(this);
+  }
+
+  template <typename T>
+  T *asChecked() {
+    auto *casted = as<T>();
+    VELOX_CHECK_NOT_NULL(casted, "Wrong type cast expected {}, but got {}", typeid(T).name(), typeid(*this).name());
+    return casted;
+  }
+
+  template <typename T>
+  const T *asChecked() const {
+    auto *casted = as<T>();
+    VELOX_CHECK_NOT_NULL(casted, "Wrong type cast expected {}, but got {}", typeid(T).name(), typeid(*this).name());
+    return casted;
+  }
 
   virtual bool isNullAt(vector_size_t index) const {
     if (!nulls_)
