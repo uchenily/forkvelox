@@ -67,6 +67,12 @@ public:
   bool next(size_t batchSize, RowVectorPtr &out);
 
 private:
+  struct PreparedFilter {
+    size_t columnIndex{0};
+    dwio::common::CompareOp op{dwio::common::CompareOp::EQ};
+    Variant value;
+  };
+
   struct ColumnBuffer {
     TypeKind kind{TypeKind::UNKNOWN};
     std::vector<int64_t> int64s;
@@ -76,13 +82,16 @@ private:
 
   struct RowGroupCache {
     uint32_t rowCount{0};
-    std::vector<ColumnBuffer> columns;
+    std::vector<std::optional<ColumnBuffer>> columns;
+    std::vector<vector_size_t> selectedRows;
   };
 
   const FvxReader *reader_;
   dwio::common::RowReaderOptions options_;
   RowTypePtr outputType_;
   std::vector<size_t> projectedIndices_;
+  std::vector<size_t> requiredIndices_;
+  std::vector<PreparedFilter> filters_;
   size_t rowGroupIndex_{0};
   vector_size_t rowOffsetInGroup_{0};
   std::optional<RowGroupCache> currentGroup_;
@@ -90,10 +99,15 @@ private:
   bool loadNextMatchingRowGroup();
   bool rowGroupMatches(const FvxReader::RowGroup &rowGroup) const;
   bool columnMayMatch(const FvxReader::ColumnStats &stats, dwio::common::CompareOp op, const Variant &value) const;
+  bool rowMatchesFilters(const RowGroupCache &cache, vector_size_t row) const;
+  bool columnMatches(const ColumnBuffer &column, vector_size_t row, dwio::common::CompareOp op,
+                     const Variant &value) const;
+  const ColumnBuffer &getColumnBuffer(const RowGroupCache &cache, size_t columnIndex) const;
 
-  RowVectorPtr buildRowVectorFromCache(const RowGroupCache &cache, vector_size_t offset, vector_size_t count) const;
+  RowVectorPtr buildRowVectorFromCache(const RowGroupCache &cache, const vector_size_t *rows, vector_size_t count) const;
   ColumnBuffer decodeColumn(const FvxReader::ColumnChunk &chunk, TypeKind kind, uint32_t rowCount) const;
   void buildProjection();
+  void buildFiltersAndRequiredColumns();
 };
 
 } // namespace facebook::velox::dwio::fvx

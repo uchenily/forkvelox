@@ -126,27 +126,34 @@ void FvxReader::buildNameToIndex() {
 FvxRowReader::FvxRowReader(const FvxReader *reader, dwio::common::RowReaderOptions options)
     : reader_(reader), options_(std::move(options)) {
   buildProjection();
+  buildFiltersAndRequiredColumns();
 }
 
 bool FvxRowReader::next(size_t batchSize, RowVectorPtr &out) {
-  if (!currentGroup_.has_value()) {
-    if (!loadNextMatchingRowGroup()) {
-      return false;
+  if (batchSize == 0) {
+    return false;
+  }
+
+  while (true) {
+    if (!currentGroup_.has_value()) {
+      if (!loadNextMatchingRowGroup()) {
+        return false;
+      }
     }
-  }
 
-  auto &cache = currentGroup_.value();
-  if (rowOffsetInGroup_ >= static_cast<vector_size_t>(cache.rowCount)) {
-    currentGroup_.reset();
-    rowOffsetInGroup_ = 0;
-    return next(batchSize, out);
-  }
+    auto &cache = currentGroup_.value();
+    if (rowOffsetInGroup_ >= static_cast<vector_size_t>(cache.selectedRows.size())) {
+      currentGroup_.reset();
+      rowOffsetInGroup_ = 0;
+      continue;
+    }
 
-  vector_size_t remaining = static_cast<vector_size_t>(cache.rowCount) - rowOffsetInGroup_;
-  vector_size_t count = static_cast<vector_size_t>(std::min<size_t>(batchSize, remaining));
-  out = buildRowVectorFromCache(cache, rowOffsetInGroup_, count);
-  rowOffsetInGroup_ += count;
-  return true;
+    vector_size_t remaining = static_cast<vector_size_t>(cache.selectedRows.size()) - rowOffsetInGroup_;
+    vector_size_t count = static_cast<vector_size_t>(std::min<size_t>(batchSize, remaining));
+    out = buildRowVectorFromCache(cache, cache.selectedRows.data() + rowOffsetInGroup_, count);
+    rowOffsetInGroup_ += count;
+    return true;
+  }
 }
 
 bool FvxRowReader::loadNextMatchingRowGroup() {
@@ -156,14 +163,26 @@ bool FvxRowReader::loadNextMatchingRowGroup() {
     if (!rowGroupMatches(rowGroup)) {
       continue;
     }
+
     RowGroupCache cache;
     cache.rowCount = rowGroup.rowCount;
-    cache.columns.reserve(projectedIndices_.size());
-    for (size_t i = 0; i < projectedIndices_.size(); ++i) {
-      auto columnIndex = projectedIndices_[i];
+    cache.columns.resize(reader_->rowType_->size());
+    for (auto columnIndex : requiredIndices_) {
       auto kind = reader_->rowType_->childAt(columnIndex)->kind();
-      cache.columns.push_back(decodeColumn(rowGroup.columns[columnIndex], kind, rowGroup.rowCount));
+      cache.columns[columnIndex] = decodeColumn(rowGroup.columns[columnIndex], kind, rowGroup.rowCount);
     }
+
+    cache.selectedRows.reserve(rowGroup.rowCount);
+    for (vector_size_t row = 0; row < static_cast<vector_size_t>(rowGroup.rowCount); ++row) {
+      if (rowMatchesFilters(cache, row)) {
+        cache.selectedRows.push_back(row);
+      }
+    }
+
+    if (cache.selectedRows.empty()) {
+      continue;
+    }
+
     currentGroup_ = std::move(cache);
     rowOffsetInGroup_ = 0;
     return true;
@@ -172,12 +191,8 @@ bool FvxRowReader::loadNextMatchingRowGroup() {
 }
 
 bool FvxRowReader::rowGroupMatches(const FvxReader::RowGroup &rowGroup) const {
-  for (const auto &filter : options_.filters()) {
-    auto it = reader_->nameToIndex_.find(filter.column);
-    if (it == reader_->nameToIndex_.end()) {
-      continue;
-    }
-    const auto &stats = rowGroup.columns[it->second].stats;
+  for (const auto &filter : filters_) {
+    const auto &stats = rowGroup.columns[filter.columnIndex].stats;
     if (!columnMayMatch(stats, filter.op, filter.value)) {
       return false;
     }
@@ -238,39 +253,117 @@ bool FvxRowReader::columnMayMatch(const FvxReader::ColumnStats &stats, dwio::com
   return true;
 }
 
-RowVectorPtr FvxRowReader::buildRowVectorFromCache(const RowGroupCache &cache, vector_size_t offset,
+bool FvxRowReader::rowMatchesFilters(const RowGroupCache &cache, vector_size_t row) const {
+  for (const auto &filter : filters_) {
+    const auto &column = getColumnBuffer(cache, filter.columnIndex);
+    if (!columnMatches(column, row, filter.op, filter.value)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool FvxRowReader::columnMatches(const ColumnBuffer &column, vector_size_t row, dwio::common::CompareOp op,
+                                 const Variant &value) const {
+  if (value.isNull()) {
+    return false;
+  }
+
+  if (column.kind == TypeKind::BIGINT || column.kind == TypeKind::INTEGER) {
+    if (value.kind() != TypeKind::BIGINT && value.kind() != TypeKind::INTEGER) {
+      return false;
+    }
+
+    int64_t rowValue = (column.kind == TypeKind::BIGINT) ? column.int64s[row] : column.int32s[row];
+    int64_t filterValue = value.value<int64_t>();
+    switch (op) {
+    case dwio::common::CompareOp::EQ:
+      return rowValue == filterValue;
+    case dwio::common::CompareOp::NE:
+      return rowValue != filterValue;
+    case dwio::common::CompareOp::LT:
+      return rowValue < filterValue;
+    case dwio::common::CompareOp::LE:
+      return rowValue <= filterValue;
+    case dwio::common::CompareOp::GT:
+      return rowValue > filterValue;
+    case dwio::common::CompareOp::GE:
+      return rowValue >= filterValue;
+    }
+  }
+
+  if (column.kind == TypeKind::VARCHAR) {
+    if (value.kind() != TypeKind::VARCHAR) {
+      return false;
+    }
+
+    const std::string &rowValue = column.strings[row];
+    const std::string filterValue = value.value<std::string>();
+    int cmp = compareStrings(rowValue, filterValue);
+    switch (op) {
+    case dwio::common::CompareOp::EQ:
+      return cmp == 0;
+    case dwio::common::CompareOp::NE:
+      return cmp != 0;
+    case dwio::common::CompareOp::LT:
+      return cmp < 0;
+    case dwio::common::CompareOp::LE:
+      return cmp <= 0;
+    case dwio::common::CompareOp::GT:
+      return cmp > 0;
+    case dwio::common::CompareOp::GE:
+      return cmp >= 0;
+    }
+  }
+
+  VELOX_FAIL("FVX supports BIGINT, INTEGER, VARCHAR only");
+  return false;
+}
+
+const FvxRowReader::ColumnBuffer &FvxRowReader::getColumnBuffer(const RowGroupCache &cache, size_t columnIndex) const {
+  VELOX_CHECK(columnIndex < cache.columns.size(), "FVX: invalid column index {}", columnIndex);
+  VELOX_CHECK(cache.columns[columnIndex].has_value(), "FVX: column {} was not decoded", columnIndex);
+  return cache.columns[columnIndex].value();
+}
+
+RowVectorPtr FvxRowReader::buildRowVectorFromCache(const RowGroupCache &cache, const vector_size_t *rows,
                                                    vector_size_t count) const {
   std::vector<VectorPtr> children;
-  children.reserve(cache.columns.size());
+  children.reserve(projectedIndices_.size());
 
-  for (size_t i = 0; i < cache.columns.size(); ++i) {
-    const auto &column = cache.columns[i];
+  for (size_t i = 0; i < projectedIndices_.size(); ++i) {
+    const auto columnIndex = projectedIndices_[i];
+    const auto &column = getColumnBuffer(cache, columnIndex);
     auto type = outputType_->childAt(i);
     if (column.kind == TypeKind::BIGINT) {
       auto buffer = AlignedBuffer::allocate(count * sizeof(int64_t), reader_->pool_);
-      std::memcpy(buffer->as_mutable_uint8_t(), column.int64s.data() + offset, count * sizeof(int64_t));
+      auto *rawValues = buffer->asMutable<int64_t>();
+      for (vector_size_t row = 0; row < count; ++row) {
+        rawValues[row] = column.int64s[rows[row]];
+      }
       children.push_back(std::make_shared<FlatVector<int64_t>>(reader_->pool_, type, nullptr, count, buffer));
     } else if (column.kind == TypeKind::INTEGER) {
       auto buffer = AlignedBuffer::allocate(count * sizeof(int32_t), reader_->pool_);
-      std::memcpy(buffer->as_mutable_uint8_t(), column.int32s.data() + offset, count * sizeof(int32_t));
+      auto *rawValues = buffer->asMutable<int32_t>();
+      for (vector_size_t row = 0; row < count; ++row) {
+        rawValues[row] = column.int32s[rows[row]];
+      }
       children.push_back(std::make_shared<FlatVector<int32_t>>(reader_->pool_, type, nullptr, count, buffer));
     } else if (column.kind == TypeKind::VARCHAR) {
-      const auto begin = column.strings.begin() + offset;
-      const auto end = begin + count;
       size_t totalSize = 0;
-      for (auto it = begin; it != end; ++it) {
-        totalSize += it->size();
+      for (vector_size_t row = 0; row < count; ++row) {
+        totalSize += column.strings[rows[row]].size();
       }
       auto values = AlignedBuffer::allocate(count * sizeof(StringView), reader_->pool_);
       auto *rawValues = values->asMutable<StringView>();
       auto dataBuffer = AlignedBuffer::allocate(totalSize, reader_->pool_);
       char *cursor = dataBuffer->asMutable<char>();
       size_t bytesOffset = 0;
-      size_t row = 0;
-      for (auto it = begin; it != end; ++it, ++row) {
-        std::memcpy(cursor + bytesOffset, it->data(), it->size());
-        rawValues[row] = StringView(cursor + bytesOffset, it->size());
-        bytesOffset += it->size();
+      for (vector_size_t row = 0; row < count; ++row) {
+        const auto &value = column.strings[rows[row]];
+        std::memcpy(cursor + bytesOffset, value.data(), value.size());
+        rawValues[row] = StringView(cursor + bytesOffset, value.size());
+        bytesOffset += value.size();
       }
       auto vector = std::make_shared<FlatVector<StringView>>(reader_->pool_, type, nullptr, count, values);
       vector->addStringBuffer(dataBuffer);
@@ -338,6 +431,20 @@ void FvxRowReader::buildProjection() {
     types.push_back(reader_->rowType_->childAt(it->second));
   }
   outputType_ = ROW(std::move(names), std::move(types));
+}
+
+void FvxRowReader::buildFiltersAndRequiredColumns() {
+  requiredIndices_ = projectedIndices_;
+  filters_.reserve(options_.filters().size());
+  for (const auto &filter : options_.filters()) {
+    auto it = reader_->nameToIndex_.find(filter.column);
+    VELOX_CHECK(it != reader_->nameToIndex_.end(), "Unknown filter column {}", filter.column);
+    filters_.push_back(PreparedFilter{it->second, filter.op, filter.value});
+    requiredIndices_.push_back(it->second);
+  }
+
+  std::sort(requiredIndices_.begin(), requiredIndices_.end());
+  requiredIndices_.erase(std::unique(requiredIndices_.begin(), requiredIndices_.end()), requiredIndices_.end());
 }
 
 } // namespace facebook::velox::dwio::fvx
