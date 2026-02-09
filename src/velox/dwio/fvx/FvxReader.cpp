@@ -33,6 +33,54 @@ std::string readString(const std::string &data, size_t &offset) {
   return value;
 }
 
+class PrefixReader {
+public:
+  PrefixReader(const ReadFile &file, uint64_t fileSize) : file_(file), fileSize_(fileSize) {}
+
+  template <typename T>
+  T readPod() {
+    ensure(sizeof(T));
+    T value;
+    std::memcpy(&value, buffer_.data() + offset_, sizeof(T));
+    offset_ += sizeof(T);
+    return value;
+  }
+
+  std::string readString() {
+    uint32_t length = readPod<uint32_t>();
+    ensure(length);
+    std::string value(buffer_.data() + offset_, length);
+    offset_ += length;
+    return value;
+  }
+
+  void readBytes(char *out, size_t length) {
+    ensure(length);
+    std::memcpy(out, buffer_.data() + offset_, length);
+    offset_ += length;
+  }
+
+private:
+  void ensure(size_t length) {
+    const auto required = offset_ + length;
+    VELOX_CHECK(required <= fileSize_, "FVX: Unexpected end of file");
+    while (buffer_.size() < required) {
+      const auto readOffset = static_cast<uint64_t>(buffer_.size());
+      const auto remaining = fileSize_ - readOffset;
+      const auto toRead = std::min<uint64_t>(std::max<uint64_t>(kChunkSize, required - readOffset), remaining);
+      auto chunk = file_.pread(readOffset, toRead);
+      VELOX_CHECK(!chunk.empty(), "FVX: Unexpected end of file");
+      buffer_.append(chunk);
+    }
+  }
+
+  const ReadFile &file_;
+  const uint64_t fileSize_;
+  std::string buffer_;
+  size_t offset_{0};
+  static constexpr uint64_t kChunkSize = 64 * 1024;
+};
+
 int compareStrings(const std::string &left, const std::string &right) {
   if (left < right) {
     return -1;
@@ -56,23 +104,24 @@ std::unique_ptr<FvxRowReader> FvxReader::createRowReader(const dwio::common::Row
 }
 
 void FvxReader::parseFile() {
-  auto size = file_->size();
-  data_ = file_->pread(0, size);
-  size_t offset = 0;
-  VELOX_CHECK(data_.size() >= sizeof(kMagic), "FVX: file too small");
-  VELOX_CHECK(std::memcmp(data_.data(), kMagic, sizeof(kMagic)) == 0, "FVX: invalid magic");
-  offset += sizeof(kMagic);
-  uint32_t version = readPod<uint32_t>(data_, offset);
+  fileSize_ = file_->size();
+  VELOX_CHECK(fileSize_ >= sizeof(kMagic), "FVX: file too small");
+  PrefixReader metadataReader(*file_, fileSize_);
+  char magic[sizeof(kMagic)];
+  metadataReader.readBytes(magic, sizeof(magic));
+  VELOX_CHECK(std::memcmp(magic, kMagic, sizeof(kMagic)) == 0, "FVX: invalid magic");
+
+  uint32_t version = metadataReader.readPod<uint32_t>();
   VELOX_CHECK(version == kVersion, "FVX: unsupported version");
 
-  uint32_t columnCount = readPod<uint32_t>(data_, offset);
+  uint32_t columnCount = metadataReader.readPod<uint32_t>();
   std::vector<std::string> names;
   std::vector<TypePtr> types;
   names.reserve(columnCount);
   types.reserve(columnCount);
   for (uint32_t i = 0; i < columnCount; ++i) {
-    auto name = readString(data_, offset);
-    auto kind = static_cast<TypeKind>(readPod<uint8_t>(data_, offset));
+    auto name = metadataReader.readString();
+    auto kind = static_cast<TypeKind>(metadataReader.readPod<uint8_t>());
     names.push_back(name);
     if (kind == TypeKind::BIGINT) {
       types.push_back(BIGINT());
@@ -86,28 +135,30 @@ void FvxReader::parseFile() {
   }
   rowType_ = ROW(std::move(names), std::move(types));
 
-  uint32_t rowGroupCount = readPod<uint32_t>(data_, offset);
+  uint32_t rowGroupCount = metadataReader.readPod<uint32_t>();
   rowGroups_.reserve(rowGroupCount);
   for (uint32_t g = 0; g < rowGroupCount; ++g) {
     RowGroup group;
-    group.rowCount = readPod<uint32_t>(data_, offset);
+    group.rowCount = metadataReader.readPod<uint32_t>();
     group.columns.reserve(columnCount);
     for (uint32_t c = 0; c < columnCount; ++c) {
       ColumnChunk column;
-      column.offset = readPod<uint64_t>(data_, offset);
-      column.length = readPod<uint64_t>(data_, offset);
+      column.offset = metadataReader.readPod<uint64_t>();
+      column.length = metadataReader.readPod<uint64_t>();
+      VELOX_CHECK(column.offset <= fileSize_, "FVX: column offset out of bounds");
+      VELOX_CHECK(column.length <= fileSize_ - column.offset, "FVX: column length out of bounds");
       auto kind = rowType_->childAt(c)->kind();
       column.stats.kind = kind;
       column.stats.hasMinMax = true;
       if (kind == TypeKind::BIGINT) {
-        column.stats.minBigint = readPod<int64_t>(data_, offset);
-        column.stats.maxBigint = readPod<int64_t>(data_, offset);
+        column.stats.minBigint = metadataReader.readPod<int64_t>();
+        column.stats.maxBigint = metadataReader.readPod<int64_t>();
       } else if (kind == TypeKind::INTEGER) {
-        column.stats.minInt = readPod<int32_t>(data_, offset);
-        column.stats.maxInt = readPod<int32_t>(data_, offset);
+        column.stats.minInt = metadataReader.readPod<int32_t>();
+        column.stats.maxInt = metadataReader.readPod<int32_t>();
       } else if (kind == TypeKind::VARCHAR) {
-        column.stats.minString = readString(data_, offset);
-        column.stats.maxString = readString(data_, offset);
+        column.stats.minString = metadataReader.readString();
+        column.stats.maxString = metadataReader.readString();
       } else {
         VELOX_FAIL("FVX: unsupported type kind");
       }
@@ -380,24 +431,30 @@ FvxRowReader::ColumnBuffer FvxRowReader::decodeColumn(const FvxReader::ColumnChu
                                                       uint32_t rowCount) const {
   ColumnBuffer buffer;
   buffer.kind = kind;
-  size_t offset = static_cast<size_t>(chunk.offset);
+  VELOX_CHECK(chunk.offset <= reader_->fileSize_, "FVX: column offset out of bounds");
+  VELOX_CHECK(chunk.length <= reader_->fileSize_ - chunk.offset, "FVX: column length out of bounds");
+
+  auto chunkData = reader_->file_->pread(chunk.offset, chunk.length);
+  size_t offset = 0;
   if (kind == TypeKind::BIGINT) {
     buffer.int64s.resize(rowCount);
-    VELOX_CHECK(offset + rowCount * sizeof(int64_t) <= reader_->data_.size(), "FVX: bigint column out of bounds");
-    std::memcpy(buffer.int64s.data(), reader_->data_.data() + offset, rowCount * sizeof(int64_t));
+    const auto byteSize = static_cast<size_t>(rowCount) * sizeof(int64_t);
+    VELOX_CHECK(offset + byteSize <= chunkData.size(), "FVX: bigint column out of bounds");
+    std::memcpy(buffer.int64s.data(), chunkData.data() + offset, byteSize);
   } else if (kind == TypeKind::INTEGER) {
     buffer.int32s.resize(rowCount);
-    VELOX_CHECK(offset + rowCount * sizeof(int32_t) <= reader_->data_.size(), "FVX: integer column out of bounds");
-    std::memcpy(buffer.int32s.data(), reader_->data_.data() + offset, rowCount * sizeof(int32_t));
+    const auto byteSize = static_cast<size_t>(rowCount) * sizeof(int32_t);
+    VELOX_CHECK(offset + byteSize <= chunkData.size(), "FVX: integer column out of bounds");
+    std::memcpy(buffer.int32s.data(), chunkData.data() + offset, byteSize);
   } else if (kind == TypeKind::VARCHAR) {
-    uint32_t totalBytes = readPod<uint32_t>(reader_->data_, offset);
+    uint32_t totalBytes = readPod<uint32_t>(chunkData, offset);
     std::vector<uint32_t> offsets(rowCount + 1);
-    VELOX_CHECK(offset + offsets.size() * sizeof(uint32_t) + totalBytes <= reader_->data_.size(),
+    VELOX_CHECK(offset + offsets.size() * sizeof(uint32_t) + totalBytes <= chunkData.size(),
                 "FVX: varchar column out of bounds");
-    std::memcpy(offsets.data(), reader_->data_.data() + offset, offsets.size() * sizeof(uint32_t));
+    std::memcpy(offsets.data(), chunkData.data() + offset, offsets.size() * sizeof(uint32_t));
     offset += offsets.size() * sizeof(uint32_t);
     buffer.strings.reserve(rowCount);
-    const char *base = reader_->data_.data() + offset;
+    const char *base = chunkData.data() + offset;
     for (uint32_t i = 0; i < rowCount; ++i) {
       uint32_t start = offsets[i];
       uint32_t end = offsets[i + 1];

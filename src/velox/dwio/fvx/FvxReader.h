@@ -49,7 +49,7 @@ private:
 
   std::shared_ptr<ReadFile> file_;
   memory::MemoryPool *pool_;
-  std::string data_;
+  uint64_t fileSize_{0};
   RowTypePtr rowType_;
   std::vector<RowGroup> rowGroups_;
   std::unordered_map<std::string, size_t> nameToIndex_;
