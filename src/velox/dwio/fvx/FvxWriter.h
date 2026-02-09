@@ -9,6 +9,7 @@ namespace facebook::velox::dwio::fvx {
 
 struct FvxWriteOptions {
   size_t rowGroupSize = 1024;
+  size_t pageSize = 256;
 };
 
 class FvxWriter {

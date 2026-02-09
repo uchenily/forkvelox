@@ -110,12 +110,7 @@ int main(int argc, char **argv) {
   const std::string filePath = (argc >= 2) ? std::string{argv[1]} : std::string{"data/sample.fvx"};
 
   auto data = makeSampleData(pool.get());
-  std::cout << "Original rows:" << std::endl;
-  for (vector_size_t i = 0; i < data->size(); ++i) {
-    std::cout << data->toString(i) << std::endl;
-  }
-  std::cout << std::endl;
-
+  std::cout << data->toString() << std::endl;
   dwio::fvx::FvxWriter::write(*data, filePath, {.rowGroupSize = kRowGroupSize});
 
   dwio::common::ReaderOptions readerOpts{pool.get()};

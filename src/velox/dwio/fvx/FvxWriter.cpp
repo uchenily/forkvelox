@@ -18,7 +18,7 @@ namespace facebook::velox::dwio::fvx {
 namespace {
 
 constexpr char kMagic[] = {'F', 'V', 'X', '1'};
-constexpr uint32_t kVersion = 1;
+constexpr uint32_t kVersion = 2;
 
 template <typename T>
 void appendPod(std::string &out, T value) {
@@ -43,7 +43,15 @@ struct ColumnStats {
 
 struct ColumnChunkData {
   ColumnStats stats;
-  std::string data;
+  struct PageData {
+    uint32_t rowCount{0};
+    ColumnStats stats;
+    std::string data;
+    uint64_t offset{0};
+    uint64_t length{0};
+  };
+
+  std::vector<PageData> pages;
   uint64_t offset{0};
   uint64_t length{0};
 };
@@ -187,6 +195,7 @@ void FvxWriter::write(const RowVector &data, const std::string &path, FvxWriteOp
 
   const vector_size_t totalRows = data.size();
   const vector_size_t groupSize = options.rowGroupSize == 0 ? totalRows : options.rowGroupSize;
+  const vector_size_t pageSize = options.pageSize == 0 ? groupSize : static_cast<vector_size_t>(options.pageSize);
 
   std::vector<RowGroupData> rowGroups;
   for (vector_size_t start = 0; start < totalRows; start += groupSize) {
@@ -198,8 +207,17 @@ void FvxWriter::write(const RowVector &data, const std::string &path, FvxWriteOp
       auto kind = rowType->childAt(col)->kind();
       ColumnChunkData chunk;
       chunk.stats = buildStats(kind, data, col, start, count);
-      chunk.data = buildColumnData(kind, data, col, start, count);
-      chunk.length = static_cast<uint64_t>(chunk.data.size());
+      for (vector_size_t pageStart = 0; pageStart < count; pageStart += pageSize) {
+        const vector_size_t pageRowCount = std::min<vector_size_t>(pageSize, count - pageStart);
+        ColumnChunkData::PageData page;
+        page.rowCount = static_cast<uint32_t>(pageRowCount);
+        page.stats = buildStats(kind, data, col, start + pageStart, pageRowCount);
+        page.data = buildColumnData(kind, data, col, start + pageStart, pageRowCount);
+        page.length = static_cast<uint64_t>(page.data.size());
+        chunk.length += page.length;
+        chunk.pages.push_back(std::move(page));
+      }
+      VELOX_CHECK(!chunk.pages.empty(), "FVX requires at least one page per chunk");
       group.columns.push_back(std::move(chunk));
     }
     rowGroups.push_back(std::move(group));
@@ -218,6 +236,12 @@ void FvxWriter::write(const RowVector &data, const std::string &path, FvxWriteOp
     for (const auto &column : group.columns) {
       metadataSize += sizeof(uint64_t) * 2;
       metadataSize += statsSize(column.stats);
+      metadataSize += sizeof(uint32_t);
+      for (const auto &page : column.pages) {
+        metadataSize += sizeof(uint32_t);
+        metadataSize += sizeof(uint64_t) * 2;
+        metadataSize += statsSize(page.stats);
+      }
     }
   }
 
@@ -227,7 +251,11 @@ void FvxWriter::write(const RowVector &data, const std::string &path, FvxWriteOp
   for (auto &group : rowGroups) {
     for (auto &column : group.columns) {
       column.offset = cursor;
-      cursor += column.length;
+      for (auto &page : column.pages) {
+        page.offset = cursor;
+        cursor += page.length;
+      }
+      column.length = cursor - column.offset;
     }
   }
 
@@ -261,12 +289,32 @@ void FvxWriter::write(const RowVector &data, const std::string &path, FvxWriteOp
       } else {
         VELOX_FAIL("FVX supports BIGINT, INTEGER, VARCHAR only");
       }
+      appendPod(out, static_cast<uint32_t>(column.pages.size()));
+      for (const auto &page : column.pages) {
+        appendPod(out, page.rowCount);
+        appendPod(out, page.offset);
+        appendPod(out, page.length);
+        if (page.stats.kind == TypeKind::BIGINT) {
+          appendPod(out, page.stats.minBigint);
+          appendPod(out, page.stats.maxBigint);
+        } else if (page.stats.kind == TypeKind::INTEGER) {
+          appendPod(out, page.stats.minInt);
+          appendPod(out, page.stats.maxInt);
+        } else if (page.stats.kind == TypeKind::VARCHAR) {
+          appendString(out, page.stats.minString);
+          appendString(out, page.stats.maxString);
+        } else {
+          VELOX_FAIL("FVX supports BIGINT, INTEGER, VARCHAR only");
+        }
+      }
     }
   }
 
   for (const auto &group : rowGroups) {
     for (const auto &column : group.columns) {
-      out.append(column.data);
+      for (const auto &page : column.pages) {
+        out.append(page.data);
+      }
     }
   }
 
