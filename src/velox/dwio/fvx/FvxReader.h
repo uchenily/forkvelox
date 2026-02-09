@@ -42,6 +42,8 @@ private:
       uint32_t startRow{0};
       uint64_t offset{0};
       uint64_t length{0};
+      uint32_t uncompressedSize{0};
+      uint32_t compressedSize{0};
       ColumnStats stats;
     };
 

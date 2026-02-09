@@ -14,53 +14,65 @@ FVX 是一个参考 Parquet 设计的轻量列式存储格式，面向 ForkVelox
 
 ## 设计概览
 
-FVX 文件由三部分组成：
+当前实现采用与 Parquet 相近的“数据在前、Footer 在尾”组织方式（不追求二进制兼容）：
 
-1. 文件头：magic、版本、schema。
-2. 行组元数据：每个行组的行数、列块偏移/长度、列统计、页级元数据。
-3. 列块数据：按行组、按列顺序写入的列式数据。
+1. 文件起始 magic：`FVX3`
+2. 行组列块数据（包含页）
+3. Footer（schema + row group/chunk/page 元数据）
+4. 文件尾部 trailer：`footerSize(uint32) + magic(FVX3)`
+
+读取流程先从文件尾部读取 trailer，定位 footer，再据 footer 中的 offset/length 精准读取列块与页。
 
 ### 逻辑结构
 
-- Row Group：一批行，默认由 `rowGroupSize` 控制（写入时设置）。
+- Row Group：一批行，默认由 `rowGroupSize` 控制。
 - Column Chunk：每个行组内每列对应一个列块。
-- Stats：每个列块保存 min/max，用于谓词下推。
+- Page：列块进一步切页（`pageSize`），支持页级统计跳过。
+- Stats：列块与页都保存 min/max。
 
 ## 文件布局（逻辑层）
 
 ```
-| magic + version |
-| schema |
-| row group metadata |
-| column chunks data |
+| prefix magic(FVX3) |
+| row group data pages ... |
+| footer |
+| footer size (uint32) |
+| suffix magic(FVX3) |
 ```
 
-### Schema
+### Footer 内容
 
-- 包含列名和类型。
-- 当前仅支持：`BIGINT` / `INTEGER` / `VARCHAR`。
+- version（当前固定 `3`）
+- schema（列名 + 类型）
+- row groups
+  - rowCount
+  - columns
+    - chunk offset/length
+    - chunk min/max
+    - pages
+      - startRow
+      - rowCount
+      - page offset/length
+      - uncompressedSize/compressedSize
+      - page min/max
 
-### Row Group 元数据
+### Page 格式
 
-每个行组包含：
+每个 page 写入格式：
 
-- rowCount
-- 对每个列块：
-  - offset
-  - length
-  - chunk min/max（按类型存储）
-  - pages（页级信息）
-    - pageRowCount
-    - page offset / length
-    - page min/max
+1. `pageHeaderSize(uint32)`
+2. `pageHeader`
+   - `pageType(uint8)`（当前仅 DATA_PAGE=0）
+   - `encoding(uint8)`（当前仅 PLAIN=0）
+   - `rowCount(uint32)`
+   - `uncompressedSize(uint32)`
+   - `compressedSize(uint32)`（当前与 uncompressed 相同）
+3. `payload`
 
-### Column Chunk 数据
+当前 payload：
 
-- BIGINT/INTEGER：原始定长数组（未压缩）。
-- VARCHAR：`totalBytes + offsets + data` 的布局：
-  - totalBytes：字符串数据总长度
-  - offsets：`(rowCount + 1)` 个偏移
-  - data：拼接的字符串字节
+- BIGINT/INTEGER：原始定长数组（PLAIN）。
+- VARCHAR：`totalBytes(uint32) + offsets(rowCount+1) + data`。
 
 ## 下推能力
 
@@ -79,9 +91,9 @@ FVX 文件由三部分组成：
 
 ## 代码位置
 
-- Writer：`velox/dwio/fvx/FvxWriter.h`、`velox/dwio/fvx/FvxWriter.cpp`
-- Reader：`velox/dwio/fvx/FvxReader.h`、`velox/dwio/fvx/FvxReader.cpp`
-- 注册：`velox/dwio/fvx/RegisterFvxReader.h`、`velox/dwio/fvx/RegisterFvxReader.cpp`
+- Writer：`src/velox/dwio/fvx/FvxWriter.h`、`src/velox/dwio/fvx/FvxWriter.cpp`
+- Reader：`src/velox/dwio/fvx/FvxReader.h`、`src/velox/dwio/fvx/FvxReader.cpp`
+- 注册：`src/velox/dwio/fvx/RegisterFvxReader.h`、`src/velox/dwio/fvx/RegisterFvxReader.cpp`
 - 示例：`examples/ScanFvx.cpp`
 
 ## 使用示例

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <utility>
@@ -17,8 +18,8 @@
 namespace facebook::velox::dwio::fvx {
 namespace {
 
-constexpr char kMagic[] = {'F', 'V', 'X', '1'};
-constexpr uint32_t kVersion = 2;
+constexpr char kMagic[] = {'F', 'V', 'X', '3'};
+constexpr uint32_t kVersion = 3;
 
 template <typename T>
 void appendPod(std::string &out, T value) {
@@ -44,11 +45,14 @@ struct ColumnStats {
 struct ColumnChunkData {
   ColumnStats stats;
   struct PageData {
+    uint32_t startRow{0};
     uint32_t rowCount{0};
     ColumnStats stats;
     std::string data;
     uint64_t offset{0};
     uint64_t length{0};
+    uint32_t uncompressedSize{0};
+    uint32_t compressedSize{0};
   };
 
   std::vector<PageData> pages;
@@ -165,17 +169,30 @@ std::string buildColumnData(TypeKind kind, const RowVector &data, size_t columnI
   return out;
 }
 
-size_t statsSize(const ColumnStats &stats) {
+void appendStats(std::string &out, const ColumnStats &stats) {
   if (stats.kind == TypeKind::BIGINT) {
-    return sizeof(int64_t) * 2;
+    appendPod(out, stats.minBigint);
+    appendPod(out, stats.maxBigint);
+  } else if (stats.kind == TypeKind::INTEGER) {
+    appendPod(out, stats.minInt);
+    appendPod(out, stats.maxInt);
+  } else if (stats.kind == TypeKind::VARCHAR) {
+    appendString(out, stats.minString);
+    appendString(out, stats.maxString);
+  } else {
+    VELOX_FAIL("FVX supports BIGINT, INTEGER, VARCHAR only");
   }
-  if (stats.kind == TypeKind::INTEGER) {
-    return sizeof(int32_t) * 2;
-  }
-  if (stats.kind == TypeKind::VARCHAR) {
-    return sizeof(uint32_t) + stats.minString.size() + sizeof(uint32_t) + stats.maxString.size();
-  }
-  return 0;
+}
+
+std::string buildPageHeader(uint32_t rowCount, uint32_t uncompressedSize, uint32_t compressedSize) {
+  std::string header;
+  // Parquet-like page header core fields.
+  appendPod(header, static_cast<uint8_t>(0)); // DATA_PAGE
+  appendPod(header, static_cast<uint8_t>(0)); // PLAIN encoding
+  appendPod(header, rowCount);
+  appendPod(header, uncompressedSize);
+  appendPod(header, compressedSize);
+  return header;
 }
 
 } // namespace
@@ -196,6 +213,7 @@ void FvxWriter::write(const RowVector &data, const std::string &path, FvxWriteOp
   const vector_size_t totalRows = data.size();
   const vector_size_t groupSize = options.rowGroupSize == 0 ? totalRows : options.rowGroupSize;
   const vector_size_t pageSize = options.pageSize == 0 ? groupSize : static_cast<vector_size_t>(options.pageSize);
+  VELOX_CHECK(pageSize > 0, "FVX pageSize must be > 0");
 
   std::vector<RowGroupData> rowGroups;
   for (vector_size_t start = 0; start < totalRows; start += groupSize) {
@@ -210,11 +228,12 @@ void FvxWriter::write(const RowVector &data, const std::string &path, FvxWriteOp
       for (vector_size_t pageStart = 0; pageStart < count; pageStart += pageSize) {
         const vector_size_t pageRowCount = std::min<vector_size_t>(pageSize, count - pageStart);
         ColumnChunkData::PageData page;
+        page.startRow = static_cast<uint32_t>(pageStart);
         page.rowCount = static_cast<uint32_t>(pageRowCount);
         page.stats = buildStats(kind, data, col, start + pageStart, pageRowCount);
         page.data = buildColumnData(kind, data, col, start + pageStart, pageRowCount);
-        page.length = static_cast<uint64_t>(page.data.size());
-        chunk.length += page.length;
+        page.uncompressedSize = static_cast<uint32_t>(page.data.size());
+        page.compressedSize = page.uncompressedSize;
         chunk.pages.push_back(std::move(page));
       }
       VELOX_CHECK(!chunk.pages.empty(), "FVX requires at least one page per chunk");
@@ -223,100 +242,57 @@ void FvxWriter::write(const RowVector &data, const std::string &path, FvxWriteOp
     rowGroups.push_back(std::move(group));
   }
 
-  size_t schemaSize = sizeof(uint32_t);
-  for (size_t col = 0; col < rowType->size(); ++col) {
-    schemaSize += sizeof(uint32_t);
-    schemaSize += rowType->nameOf(col).size();
-    schemaSize += sizeof(uint8_t);
-  }
+  std::string out;
+  out.append(kMagic, sizeof(kMagic)); // Prefix magic, parquet-like.
 
-  size_t metadataSize = sizeof(uint32_t);
-  for (const auto &group : rowGroups) {
-    metadataSize += sizeof(uint32_t);
-    for (const auto &column : group.columns) {
-      metadataSize += sizeof(uint64_t) * 2;
-      metadataSize += statsSize(column.stats);
-      metadataSize += sizeof(uint32_t);
-      for (const auto &page : column.pages) {
-        metadataSize += sizeof(uint32_t);
-        metadataSize += sizeof(uint64_t) * 2;
-        metadataSize += statsSize(page.stats);
-      }
-    }
-  }
-
-  size_t headerSize = sizeof(kMagic) + sizeof(uint32_t) + schemaSize;
-  uint64_t dataStart = headerSize + metadataSize;
-  uint64_t cursor = dataStart;
   for (auto &group : rowGroups) {
     for (auto &column : group.columns) {
-      column.offset = cursor;
+      VELOX_CHECK(!column.pages.empty(), "FVX requires at least one page per chunk");
+      column.offset = static_cast<uint64_t>(out.size());
       for (auto &page : column.pages) {
-        page.offset = cursor;
-        cursor += page.length;
-      }
-      column.length = cursor - column.offset;
-    }
-  }
-
-  std::string out;
-  out.reserve(static_cast<size_t>(cursor));
-  out.append(kMagic, sizeof(kMagic));
-  appendPod(out, kVersion);
-  appendPod(out, static_cast<uint32_t>(rowType->size()));
-  for (size_t col = 0; col < rowType->size(); ++col) {
-    appendString(out, rowType->nameOf(col));
-    auto kind = rowType->childAt(col)->kind();
-    appendPod(out, static_cast<uint8_t>(kind));
-  }
-
-  appendPod(out, static_cast<uint32_t>(rowGroups.size()));
-  for (const auto &group : rowGroups) {
-    appendPod(out, group.rowCount);
-    for (const auto &column : group.columns) {
-      appendPod(out, column.offset);
-      appendPod(out, column.length);
-      const auto &stats = column.stats;
-      if (stats.kind == TypeKind::BIGINT) {
-        appendPod(out, stats.minBigint);
-        appendPod(out, stats.maxBigint);
-      } else if (stats.kind == TypeKind::INTEGER) {
-        appendPod(out, stats.minInt);
-        appendPod(out, stats.maxInt);
-      } else if (stats.kind == TypeKind::VARCHAR) {
-        appendString(out, stats.minString);
-        appendString(out, stats.maxString);
-      } else {
-        VELOX_FAIL("FVX supports BIGINT, INTEGER, VARCHAR only");
-      }
-      appendPod(out, static_cast<uint32_t>(column.pages.size()));
-      for (const auto &page : column.pages) {
-        appendPod(out, page.rowCount);
-        appendPod(out, page.offset);
-        appendPod(out, page.length);
-        if (page.stats.kind == TypeKind::BIGINT) {
-          appendPod(out, page.stats.minBigint);
-          appendPod(out, page.stats.maxBigint);
-        } else if (page.stats.kind == TypeKind::INTEGER) {
-          appendPod(out, page.stats.minInt);
-          appendPod(out, page.stats.maxInt);
-        } else if (page.stats.kind == TypeKind::VARCHAR) {
-          appendString(out, page.stats.minString);
-          appendString(out, page.stats.maxString);
-        } else {
-          VELOX_FAIL("FVX supports BIGINT, INTEGER, VARCHAR only");
-        }
-      }
-    }
-  }
-
-  for (const auto &group : rowGroups) {
-    for (const auto &column : group.columns) {
-      for (const auto &page : column.pages) {
+        page.offset = static_cast<uint64_t>(out.size());
+        auto pageHeader = buildPageHeader(page.rowCount, page.uncompressedSize, page.compressedSize);
+        appendPod(out, static_cast<uint32_t>(pageHeader.size()));
+        out.append(pageHeader);
         out.append(page.data);
+        page.length = static_cast<uint64_t>(out.size()) - page.offset;
+      }
+      column.length = static_cast<uint64_t>(out.size()) - column.offset;
+    }
+  }
+
+  std::string footer;
+  appendPod(footer, kVersion);
+  appendPod(footer, static_cast<uint32_t>(rowType->size()));
+  for (size_t col = 0; col < rowType->size(); ++col) {
+    appendString(footer, rowType->nameOf(col));
+    appendPod(footer, static_cast<uint8_t>(rowType->childAt(col)->kind()));
+  }
+
+  appendPod(footer, static_cast<uint32_t>(rowGroups.size()));
+  for (const auto &group : rowGroups) {
+    appendPod(footer, group.rowCount);
+    for (const auto &column : group.columns) {
+      appendPod(footer, column.offset);
+      appendPod(footer, column.length);
+      appendStats(footer, column.stats);
+      appendPod(footer, static_cast<uint32_t>(column.pages.size()));
+      for (const auto &page : column.pages) {
+        appendPod(footer, page.startRow);
+        appendPod(footer, page.rowCount);
+        appendPod(footer, page.offset);
+        appendPod(footer, page.length);
+        appendPod(footer, page.uncompressedSize);
+        appendPod(footer, page.compressedSize);
+        appendStats(footer, page.stats);
       }
     }
   }
+
+  VELOX_CHECK(footer.size() <= std::numeric_limits<uint32_t>::max(), "FVX footer is too large");
+  out.append(footer);
+  appendPod(out, static_cast<uint32_t>(footer.size()));
+  out.append(kMagic, sizeof(kMagic)); // Suffix magic, parquet-like.
 
   file->truncate(0);
   file->append(out);

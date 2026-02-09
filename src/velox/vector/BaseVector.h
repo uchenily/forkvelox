@@ -62,16 +62,7 @@ public:
   virtual bool isNullAt(vector_size_t index) const {
     if (!nulls_)
       return false;
-    return bits::isBitSet(nulls_->as<uint64_t>(),
-                          index); // Note: Velox nulls: 1 means null?
-    // Wait, Velox convention: nulls bit set means null? Or valid?
-    // Usually validity buffer: 1 is valid.
-    // But Velox calls it "nulls".
-    // Let's check BaseVector.h again or assume standard Arrow/Velox.
-    // Velox docs say "nulls" buffer.
-    // In `BaseVector.h`: `rawNulls_`. `isNullAt(i)`
-    // `bits::isBitSet(rawNulls_, i)` -> usually means "is null".
-    // I will assume 1 means Null.
+    return bits::isBitSet(nulls_->as<uint64_t>(), index);
   }
 
   // Virtuals

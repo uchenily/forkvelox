@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -13,11 +14,11 @@
 namespace facebook::velox::dwio::fvx {
 namespace {
 
-constexpr char kMagic[] = {'F', 'V', 'X', '1'};
-constexpr uint32_t kVersion = 2;
+constexpr char kMagic[] = {'F', 'V', 'X', '3'};
+constexpr uint32_t kVersion = 3;
 
 template <typename T>
-T readPod(const std::string &data, size_t &offset) {
+T readPod(std::string_view data, size_t &offset) {
   VELOX_CHECK(offset + sizeof(T) <= data.size(), "FVX: Unexpected end of file");
   T value;
   std::memcpy(&value, data.data() + offset, sizeof(T));
@@ -25,53 +26,63 @@ T readPod(const std::string &data, size_t &offset) {
   return value;
 }
 
-class PrefixReader {
-public:
-  PrefixReader(const ReadFile &file, uint64_t fileSize) : file_(file), fileSize_(fileSize) {}
+std::string readString(std::string_view data, size_t &offset) {
+  const uint32_t length = readPod<uint32_t>(data, offset);
+  VELOX_CHECK(offset + length <= data.size(), "FVX: Unexpected end of string");
+  std::string value(data.data() + offset, length);
+  offset += length;
+  return value;
+}
 
-  template <typename T>
-  T readPod() {
-    ensure(sizeof(T));
-    T value;
-    std::memcpy(&value, buffer_.data() + offset_, sizeof(T));
-    offset_ += sizeof(T);
-    return value;
-  }
-
-  std::string readString() {
-    uint32_t length = readPod<uint32_t>();
-    ensure(length);
-    std::string value(buffer_.data() + offset_, length);
-    offset_ += length;
-    return value;
-  }
-
-  void readBytes(char *out, size_t length) {
-    ensure(length);
-    std::memcpy(out, buffer_.data() + offset_, length);
-    offset_ += length;
-  }
-
-private:
-  void ensure(size_t length) {
-    const auto required = offset_ + length;
-    VELOX_CHECK(required <= fileSize_, "FVX: Unexpected end of file");
-    while (buffer_.size() < required) {
-      const auto readOffset = static_cast<uint64_t>(buffer_.size());
-      const auto remaining = fileSize_ - readOffset;
-      const auto toRead = std::min<uint64_t>(std::max<uint64_t>(kChunkSize, required - readOffset), remaining);
-      auto chunk = file_.pread(readOffset, toRead);
-      VELOX_CHECK(!chunk.empty(), "FVX: Unexpected end of file");
-      buffer_.append(chunk);
-    }
-  }
-
-  const ReadFile &file_;
-  const uint64_t fileSize_;
-  std::string buffer_;
-  size_t offset_{0};
-  static constexpr uint64_t kChunkSize = 64 * 1024;
+struct PageHeader {
+  uint8_t pageType{0};
+  uint8_t encoding{0};
+  uint32_t rowCount{0};
+  uint32_t uncompressedSize{0};
+  uint32_t compressedSize{0};
 };
+
+struct ParsedPage {
+  PageHeader header;
+  size_t payloadOffset{0};
+};
+
+ParsedPage parsePageHeader(std::string_view pageData) {
+  size_t offset = 0;
+  const auto headerSize = readPod<uint32_t>(pageData, offset);
+  const size_t headerStart = offset;
+  const size_t headerEnd = headerStart + headerSize;
+  VELOX_CHECK(headerEnd <= pageData.size(), "FVX: page header out of bounds");
+
+  size_t headerOffset = headerStart;
+  PageHeader header;
+  header.pageType = readPod<uint8_t>(pageData, headerOffset);
+  header.encoding = readPod<uint8_t>(pageData, headerOffset);
+  header.rowCount = readPod<uint32_t>(pageData, headerOffset);
+  header.uncompressedSize = readPod<uint32_t>(pageData, headerOffset);
+  header.compressedSize = readPod<uint32_t>(pageData, headerOffset);
+  VELOX_CHECK(headerOffset == headerEnd, "FVX: invalid page header");
+  VELOX_CHECK(headerEnd + header.compressedSize <= pageData.size(), "FVX: page payload out of bounds");
+  return ParsedPage{header, headerEnd};
+}
+
+template <typename TStats>
+void readStats(TStats &stats, TypeKind kind, std::string_view data, size_t &offset) {
+  stats.kind = kind;
+  stats.hasMinMax = true;
+  if (kind == TypeKind::BIGINT) {
+    stats.minBigint = readPod<int64_t>(data, offset);
+    stats.maxBigint = readPod<int64_t>(data, offset);
+  } else if (kind == TypeKind::INTEGER) {
+    stats.minInt = readPod<int32_t>(data, offset);
+    stats.maxInt = readPod<int32_t>(data, offset);
+  } else if (kind == TypeKind::VARCHAR) {
+    stats.minString = readString(data, offset);
+    stats.maxString = readString(data, offset);
+  } else {
+    VELOX_FAIL("FVX: unsupported type kind");
+  }
+}
 
 int compareStrings(const std::string &left, const std::string &right) {
   if (left < right) {
@@ -97,23 +108,36 @@ std::unique_ptr<FvxRowReader> FvxReader::createRowReader(const dwio::common::Row
 
 void FvxReader::parseFile() {
   fileSize_ = file_->size();
-  VELOX_CHECK(fileSize_ >= sizeof(kMagic), "FVX: file too small");
-  PrefixReader metadataReader(*file_, fileSize_);
-  char magic[sizeof(kMagic)];
-  metadataReader.readBytes(magic, sizeof(magic));
-  VELOX_CHECK(std::memcmp(magic, kMagic, sizeof(kMagic)) == 0, "FVX: invalid magic");
+  constexpr uint64_t kTrailerSize = sizeof(uint32_t) + sizeof(kMagic);
+  VELOX_CHECK(fileSize_ >= sizeof(kMagic) + kTrailerSize, "FVX: file too small");
 
-  uint32_t version = metadataReader.readPod<uint32_t>();
+  auto prefixMagic = file_->pread(0, sizeof(kMagic));
+  VELOX_CHECK(std::memcmp(prefixMagic.data(), kMagic, sizeof(kMagic)) == 0, "FVX: invalid prefix magic");
+
+  const auto trailerOffset = fileSize_ - kTrailerSize;
+  auto trailer = file_->pread(trailerOffset, kTrailerSize);
+  size_t trailerReadOffset = 0;
+  const auto footerSize = readPod<uint32_t>(trailer, trailerReadOffset);
+  VELOX_CHECK(std::memcmp(trailer.data() + trailerReadOffset, kMagic, sizeof(kMagic)) == 0, "FVX: invalid suffix magic");
+
+  VELOX_CHECK(footerSize <= trailerOffset, "FVX: invalid footer size");
+  const auto footerOffset = trailerOffset - footerSize;
+  VELOX_CHECK(footerOffset >= sizeof(kMagic), "FVX: footer overlaps prefix magic");
+
+  auto footer = file_->pread(footerOffset, footerSize);
+  size_t offset = 0;
+  uint32_t version = readPod<uint32_t>(footer, offset);
   VELOX_CHECK(version == kVersion, "FVX: unsupported version");
 
-  uint32_t columnCount = metadataReader.readPod<uint32_t>();
+  uint32_t columnCount = readPod<uint32_t>(footer, offset);
+  VELOX_CHECK(columnCount > 0, "FVX: empty schema");
   std::vector<std::string> names;
   std::vector<TypePtr> types;
   names.reserve(columnCount);
   types.reserve(columnCount);
   for (uint32_t i = 0; i < columnCount; ++i) {
-    auto name = metadataReader.readString();
-    auto kind = static_cast<TypeKind>(metadataReader.readPod<uint8_t>());
+    auto name = readString(footer, offset);
+    auto kind = static_cast<TypeKind>(readPod<uint8_t>(footer, offset));
     names.push_back(name);
     if (kind == TypeKind::BIGINT) {
       types.push_back(BIGINT());
@@ -127,72 +151,50 @@ void FvxReader::parseFile() {
   }
   rowType_ = ROW(std::move(names), std::move(types));
 
-  uint32_t rowGroupCount = metadataReader.readPod<uint32_t>();
+  uint32_t rowGroupCount = readPod<uint32_t>(footer, offset);
   rowGroups_.reserve(rowGroupCount);
   for (uint32_t g = 0; g < rowGroupCount; ++g) {
     RowGroup group;
-    group.rowCount = metadataReader.readPod<uint32_t>();
+    group.rowCount = readPod<uint32_t>(footer, offset);
     group.columns.reserve(columnCount);
     for (uint32_t c = 0; c < columnCount; ++c) {
       ColumnChunk column;
-      column.offset = metadataReader.readPod<uint64_t>();
-      column.length = metadataReader.readPod<uint64_t>();
-      VELOX_CHECK(column.offset <= fileSize_, "FVX: column offset out of bounds");
-      VELOX_CHECK(column.length <= fileSize_ - column.offset, "FVX: column length out of bounds");
+      column.offset = readPod<uint64_t>(footer, offset);
+      column.length = readPod<uint64_t>(footer, offset);
+      VELOX_CHECK(column.offset <= footerOffset, "FVX: column offset out of bounds");
+      VELOX_CHECK(column.length <= footerOffset - column.offset, "FVX: column length out of bounds");
       auto kind = rowType_->childAt(c)->kind();
-      column.stats.kind = kind;
-      column.stats.hasMinMax = true;
-      if (kind == TypeKind::BIGINT) {
-        column.stats.minBigint = metadataReader.readPod<int64_t>();
-        column.stats.maxBigint = metadataReader.readPod<int64_t>();
-      } else if (kind == TypeKind::INTEGER) {
-        column.stats.minInt = metadataReader.readPod<int32_t>();
-        column.stats.maxInt = metadataReader.readPod<int32_t>();
-      } else if (kind == TypeKind::VARCHAR) {
-        column.stats.minString = metadataReader.readString();
-        column.stats.maxString = metadataReader.readString();
-      } else {
-        VELOX_FAIL("FVX: unsupported type kind");
-      }
+      readStats(column.stats, kind, footer, offset);
 
-      uint32_t pageCount = metadataReader.readPod<uint32_t>();
+      uint32_t pageCount = readPod<uint32_t>(footer, offset);
       VELOX_CHECK(pageCount > 0, "FVX: empty page list");
       column.pages.reserve(pageCount);
-      uint32_t pageStartRow = 0;
+      uint32_t totalPageRows = 0;
       uint64_t expectedPageOffset = column.offset;
       for (uint32_t p = 0; p < pageCount; ++p) {
         FvxReader::ColumnChunk::Page page;
-        page.rowCount = metadataReader.readPod<uint32_t>();
+        page.startRow = readPod<uint32_t>(footer, offset);
+        page.rowCount = readPod<uint32_t>(footer, offset);
         VELOX_CHECK(page.rowCount > 0, "FVX: empty page");
-        page.startRow = pageStartRow;
-        pageStartRow += page.rowCount;
-        page.offset = metadataReader.readPod<uint64_t>();
-        page.length = metadataReader.readPod<uint64_t>();
+        VELOX_CHECK(page.startRow == totalPageRows, "FVX: non-contiguous page row ranges");
+        totalPageRows += page.rowCount;
+        page.offset = readPod<uint64_t>(footer, offset);
+        page.length = readPod<uint64_t>(footer, offset);
+        page.uncompressedSize = readPod<uint32_t>(footer, offset);
+        page.compressedSize = readPod<uint32_t>(footer, offset);
         VELOX_CHECK(page.offset == expectedPageOffset, "FVX: non-contiguous page layout");
-        VELOX_CHECK(page.length <= fileSize_ - page.offset, "FVX: page length out of bounds");
+        VELOX_CHECK(page.length <= footerOffset - page.offset, "FVX: page length out of bounds");
         expectedPageOffset += page.length;
-        page.stats.kind = kind;
-        page.stats.hasMinMax = true;
-        if (kind == TypeKind::BIGINT) {
-          page.stats.minBigint = metadataReader.readPod<int64_t>();
-          page.stats.maxBigint = metadataReader.readPod<int64_t>();
-        } else if (kind == TypeKind::INTEGER) {
-          page.stats.minInt = metadataReader.readPod<int32_t>();
-          page.stats.maxInt = metadataReader.readPod<int32_t>();
-        } else if (kind == TypeKind::VARCHAR) {
-          page.stats.minString = metadataReader.readString();
-          page.stats.maxString = metadataReader.readString();
-        } else {
-          VELOX_FAIL("FVX: unsupported type kind");
-        }
+        readStats(page.stats, kind, footer, offset);
         column.pages.push_back(std::move(page));
       }
-      VELOX_CHECK(pageStartRow == group.rowCount, "FVX: page row count mismatch");
+      VELOX_CHECK(totalPageRows == group.rowCount, "FVX: page row count mismatch");
       VELOX_CHECK(expectedPageOffset == column.offset + column.length, "FVX: page length mismatch");
       group.columns.push_back(std::move(column));
     }
     rowGroups_.push_back(std::move(group));
   }
+  VELOX_CHECK(offset == footer.size(), "FVX: trailing bytes in footer");
 }
 
 void FvxReader::buildNameToIndex() {
@@ -572,32 +574,60 @@ FvxRowReader::ColumnBuffer FvxRowReader::decodeColumn(const FvxReader::ColumnChu
     for (auto pageIndex : pages) {
       const auto &page = chunk.pages[pageIndex];
       auto pageData = reader_->file_->pread(page.offset, page.length);
+      const auto parsedPage = parsePageHeader(pageData);
+      VELOX_CHECK(parsedPage.header.pageType == 0, "FVX: unsupported page type");
+      VELOX_CHECK(parsedPage.header.encoding == 0, "FVX: unsupported page encoding");
+      VELOX_CHECK(parsedPage.header.rowCount == page.rowCount, "FVX: page row count mismatch");
+      VELOX_CHECK(parsedPage.header.uncompressedSize == page.uncompressedSize, "FVX: page uncompressed size mismatch");
+      VELOX_CHECK(parsedPage.header.compressedSize == page.compressedSize, "FVX: page compressed size mismatch");
+      VELOX_CHECK(parsedPage.header.compressedSize == parsedPage.header.uncompressedSize,
+                  "FVX: compressed pages are unsupported");
       const auto byteSize = static_cast<size_t>(page.rowCount) * sizeof(int64_t);
-      VELOX_CHECK(byteSize <= pageData.size(), "FVX: bigint page out of bounds");
-      std::memcpy(buffer.int64s.data() + page.startRow, pageData.data(), byteSize);
+      const auto payloadSize = pageData.size() - parsedPage.payloadOffset;
+      VELOX_CHECK(byteSize == payloadSize, "FVX: bigint page payload size mismatch");
+      std::memcpy(buffer.int64s.data() + page.startRow, pageData.data() + parsedPage.payloadOffset, byteSize);
     }
   } else if (kind == TypeKind::INTEGER) {
     buffer.int32s.resize(rowCount);
     for (auto pageIndex : pages) {
       const auto &page = chunk.pages[pageIndex];
       auto pageData = reader_->file_->pread(page.offset, page.length);
+      const auto parsedPage = parsePageHeader(pageData);
+      VELOX_CHECK(parsedPage.header.pageType == 0, "FVX: unsupported page type");
+      VELOX_CHECK(parsedPage.header.encoding == 0, "FVX: unsupported page encoding");
+      VELOX_CHECK(parsedPage.header.rowCount == page.rowCount, "FVX: page row count mismatch");
+      VELOX_CHECK(parsedPage.header.uncompressedSize == page.uncompressedSize, "FVX: page uncompressed size mismatch");
+      VELOX_CHECK(parsedPage.header.compressedSize == page.compressedSize, "FVX: page compressed size mismatch");
+      VELOX_CHECK(parsedPage.header.compressedSize == parsedPage.header.uncompressedSize,
+                  "FVX: compressed pages are unsupported");
       const auto byteSize = static_cast<size_t>(page.rowCount) * sizeof(int32_t);
-      VELOX_CHECK(byteSize <= pageData.size(), "FVX: integer page out of bounds");
-      std::memcpy(buffer.int32s.data() + page.startRow, pageData.data(), byteSize);
+      const auto payloadSize = pageData.size() - parsedPage.payloadOffset;
+      VELOX_CHECK(byteSize == payloadSize, "FVX: integer page payload size mismatch");
+      std::memcpy(buffer.int32s.data() + page.startRow, pageData.data() + parsedPage.payloadOffset, byteSize);
     }
   } else if (kind == TypeKind::VARCHAR) {
     buffer.strings.resize(rowCount);
     for (auto pageIndex : pages) {
       const auto &page = chunk.pages[pageIndex];
       auto pageData = reader_->file_->pread(page.offset, page.length);
+      const auto parsedPage = parsePageHeader(pageData);
+      VELOX_CHECK(parsedPage.header.pageType == 0, "FVX: unsupported page type");
+      VELOX_CHECK(parsedPage.header.encoding == 0, "FVX: unsupported page encoding");
+      VELOX_CHECK(parsedPage.header.rowCount == page.rowCount, "FVX: page row count mismatch");
+      VELOX_CHECK(parsedPage.header.uncompressedSize == page.uncompressedSize, "FVX: page uncompressed size mismatch");
+      VELOX_CHECK(parsedPage.header.compressedSize == page.compressedSize, "FVX: page compressed size mismatch");
+      VELOX_CHECK(parsedPage.header.compressedSize == parsedPage.header.uncompressedSize,
+                  "FVX: compressed pages are unsupported");
+
+      std::string_view payload(pageData.data() + parsedPage.payloadOffset, pageData.size() - parsedPage.payloadOffset);
       size_t offset = 0;
-      uint32_t totalBytes = readPod<uint32_t>(pageData, offset);
+      uint32_t totalBytes = readPod<uint32_t>(payload, offset);
       std::vector<uint32_t> offsets(page.rowCount + 1);
-      VELOX_CHECK(offset + offsets.size() * sizeof(uint32_t) + totalBytes <= pageData.size(),
-                  "FVX: varchar page out of bounds");
-      std::memcpy(offsets.data(), pageData.data() + offset, offsets.size() * sizeof(uint32_t));
+      const auto offsetsByteSize = offsets.size() * sizeof(uint32_t);
+      VELOX_CHECK(offset + offsetsByteSize + totalBytes == payload.size(), "FVX: varchar page payload size mismatch");
+      std::memcpy(offsets.data(), payload.data() + offset, offsetsByteSize);
       offset += offsets.size() * sizeof(uint32_t);
-      const char *base = pageData.data() + offset;
+      const char *base = payload.data() + offset;
       for (uint32_t i = 0; i < page.rowCount; ++i) {
         uint32_t start = offsets[i];
         uint32_t end = offsets[i + 1];
