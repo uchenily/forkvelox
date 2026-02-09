@@ -218,20 +218,38 @@ bool FvxRowReader::loadNextMatchingRowGroup() {
     RowGroupCache cache;
     cache.rowCount = rowGroup.rowCount;
     cache.columns.resize(reader_->rowType_->size());
-    for (auto columnIndex : requiredIndices_) {
-      auto kind = reader_->rowType_->childAt(columnIndex)->kind();
-      cache.columns[columnIndex] = decodeColumn(rowGroup.columns[columnIndex], kind, rowGroup.rowCount);
-    }
-
     cache.selectedRows.reserve(rowGroup.rowCount);
-    for (vector_size_t row = 0; row < static_cast<vector_size_t>(rowGroup.rowCount); ++row) {
-      if (rowMatchesFilters(cache, row)) {
+
+    if (filters_.empty()) {
+      for (vector_size_t row = 0; row < static_cast<vector_size_t>(rowGroup.rowCount); ++row) {
         cache.selectedRows.push_back(row);
+      }
+    } else {
+      // Decode only filter columns first, then evaluate row-level filters.
+      for (auto columnIndex : filterColumnIndices_) {
+        auto kind = reader_->rowType_->childAt(columnIndex)->kind();
+        cache.columns[columnIndex] = decodeColumn(rowGroup.columns[columnIndex], kind, rowGroup.rowCount);
+      }
+
+      for (vector_size_t row = 0; row < static_cast<vector_size_t>(rowGroup.rowCount); ++row) {
+        if (rowMatchesFilters(cache, row)) {
+          cache.selectedRows.push_back(row);
+        }
       }
     }
 
     if (cache.selectedRows.empty()) {
       continue;
+    }
+
+    // Decode projected columns only for row groups with at least one matching row.
+    // Reuse already decoded filter columns when projection overlaps filter columns.
+    for (auto columnIndex : projectedIndices_) {
+      if (cache.columns[columnIndex].has_value()) {
+        continue;
+      }
+      auto kind = reader_->rowType_->childAt(columnIndex)->kind();
+      cache.columns[columnIndex] = decodeColumn(rowGroup.columns[columnIndex], kind, rowGroup.rowCount);
     }
 
     currentGroup_ = std::move(cache);
@@ -491,17 +509,19 @@ void FvxRowReader::buildProjection() {
 }
 
 void FvxRowReader::buildFiltersAndRequiredColumns() {
-  requiredIndices_ = projectedIndices_;
+  filters_.clear();
+  filterColumnIndices_.clear();
   filters_.reserve(options_.filters().size());
   for (const auto &filter : options_.filters()) {
     auto it = reader_->nameToIndex_.find(filter.column);
     VELOX_CHECK(it != reader_->nameToIndex_.end(), "Unknown filter column {}", filter.column);
     filters_.push_back(PreparedFilter{it->second, filter.op, filter.value});
-    requiredIndices_.push_back(it->second);
+    filterColumnIndices_.push_back(it->second);
   }
 
-  std::sort(requiredIndices_.begin(), requiredIndices_.end());
-  requiredIndices_.erase(std::unique(requiredIndices_.begin(), requiredIndices_.end()), requiredIndices_.end());
+  std::sort(filterColumnIndices_.begin(), filterColumnIndices_.end());
+  filterColumnIndices_.erase(std::unique(filterColumnIndices_.begin(), filterColumnIndices_.end()),
+                             filterColumnIndices_.end());
 }
 
 } // namespace facebook::velox::dwio::fvx

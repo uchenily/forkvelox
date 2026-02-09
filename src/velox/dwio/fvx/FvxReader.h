@@ -90,7 +90,7 @@ private:
   dwio::common::RowReaderOptions options_;
   RowTypePtr outputType_;
   std::vector<size_t> projectedIndices_;
-  std::vector<size_t> requiredIndices_;
+  std::vector<size_t> filterColumnIndices_;
   std::vector<PreparedFilter> filters_;
   size_t rowGroupIndex_{0};
   vector_size_t rowOffsetInGroup_{0};
