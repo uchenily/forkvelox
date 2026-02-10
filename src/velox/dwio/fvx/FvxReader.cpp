@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <numeric>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -111,6 +112,7 @@ void FvxReader::parseFile() {
   constexpr uint64_t kTrailerSize = sizeof(uint32_t) + sizeof(kMagic);
   VELOX_CHECK(fileSize_ >= sizeof(kMagic) + kTrailerSize, "FVX: file too small");
 
+  // 核心步骤1：校验前后 magic，并从文件尾部 trailer 定位 footer。
   auto prefixMagic = file_->pread(0, sizeof(kMagic));
   VELOX_CHECK(std::memcmp(prefixMagic.data(), kMagic, sizeof(kMagic)) == 0, "FVX: invalid prefix magic");
 
@@ -129,6 +131,7 @@ void FvxReader::parseFile() {
   uint32_t version = readPod<uint32_t>(footer, offset);
   VELOX_CHECK(version == kVersion, "FVX: unsupported version");
 
+  // 核心步骤2：解析 schema，构建 RowType。
   uint32_t columnCount = readPod<uint32_t>(footer, offset);
   VELOX_CHECK(columnCount > 0, "FVX: empty schema");
   std::vector<std::string> names;
@@ -151,6 +154,7 @@ void FvxReader::parseFile() {
   }
   rowType_ = ROW(std::move(names), std::move(types));
 
+  // 核心步骤3：解析 row group / chunk / page 元数据并做一致性校验。
   uint32_t rowGroupCount = readPod<uint32_t>(footer, offset);
   rowGroups_.reserve(rowGroupCount);
   for (uint32_t g = 0; g < rowGroupCount; ++g) {
@@ -214,6 +218,7 @@ bool FvxRowReader::next(size_t batchSize, RowVectorPtr &out) {
     return false;
   }
 
+  // 按 batch 读取：当前行组耗尽后，继续加载下一个命中的行组。
   while (true) {
     if (!currentGroup_.has_value()) {
       if (!loadNextMatchingRowGroup()) {
@@ -238,96 +243,87 @@ bool FvxRowReader::next(size_t batchSize, RowVectorPtr &out) {
 
 bool FvxRowReader::loadNextMatchingRowGroup() {
   while (rowGroupIndex_ < reader_->rowGroups_.size()) {
+    // 行组切换时清空页缓存，避免跨组误复用。
+    clearPageDataCache();
     const auto &rowGroup = reader_->rowGroups_[rowGroupIndex_];
     ++rowGroupIndex_;
+    // 先做 row group 级统计裁剪，不命中直接跳过整组。
     if (!rowGroupMatches(rowGroup)) {
       continue;
     }
 
     RowGroupCache cache;
-    cache.rowCount = rowGroup.rowCount;
-    cache.columns.resize(reader_->rowType_->size());
-    cache.selectedRows.reserve(rowGroup.rowCount);
+    cache.rowGroup = &rowGroup;
 
     if (filters_.empty()) {
+      // 无过滤条件时，整组行都进入候选集。
+      cache.selectedRows.reserve(rowGroup.rowCount);
       for (vector_size_t row = 0; row < static_cast<vector_size_t>(rowGroup.rowCount); ++row) {
         cache.selectedRows.push_back(row);
       }
     } else {
-      std::vector<uint8_t> candidateRows(rowGroup.rowCount, 1);
-      std::vector<uint8_t> columnCandidateRows(rowGroup.rowCount, 0);
-      bool hasAnyCandidate = true;
-
-      // Decode only candidate pages for filter columns first.
+      // 有过滤时，候选行从全量开始并按过滤列逐步收缩。
+      std::vector<vector_size_t> candidateRows(rowGroup.rowCount);
+      std::iota(candidateRows.begin(), candidateRows.end(), 0);
       for (auto columnIndex : filterColumnIndices_) {
         const auto &chunk = rowGroup.columns[columnIndex];
+        // 先用 page 级统计过滤掉不可能命中的页。
         const auto matchingPages = collectMatchingPages(chunk, columnIndex);
         if (matchingPages.empty()) {
-          hasAnyCandidate = false;
+          candidateRows.clear();
           break;
         }
 
-        std::fill(columnCandidateRows.begin(), columnCandidateRows.end(), 0);
-        for (auto pageIndex : matchingPages) {
-          const auto &page = chunk.pages[pageIndex];
-          for (uint32_t row = page.startRow; row < page.startRow + page.rowCount; ++row) {
-            columnCandidateRows[row] = 1;
+        // 再与当前候选行求交，减少后续 selective 解码输入。
+        auto pageCandidates = collectRowsForMatchingPages(chunk, matchingPages, candidateRows);
+        if (pageCandidates.empty()) {
+          candidateRows.clear();
+          break;
+        }
+
+        const auto kind = reader_->rowType_->childAt(columnIndex)->kind();
+        // 仅对候选行做 selective 解码。
+        auto decoded = decodeColumnSelective(chunk, kind, pageCandidates.data(),
+                                             static_cast<vector_size_t>(pageCandidates.size()), &matchingPages);
+
+        // 应用该列过滤条件，继续收缩候选行集合。
+        std::vector<vector_size_t> nextCandidates;
+        nextCandidates.reserve(pageCandidates.size());
+        for (size_t i = 0; i < pageCandidates.size(); ++i) {
+          bool pass = true;
+          for (auto filterIndex : filterIndicesByColumn_[columnIndex]) {
+            const auto &filter = filters_[filterIndex];
+            if (!columnMatches(decoded, static_cast<vector_size_t>(i), filter.op, filter.value)) {
+              pass = false;
+              break;
+            }
+          }
+          if (pass) {
+            nextCandidates.push_back(pageCandidates[i]);
           }
         }
 
-        hasAnyCandidate = false;
-        for (uint32_t row = 0; row < rowGroup.rowCount; ++row) {
-          candidateRows[row] = static_cast<uint8_t>(candidateRows[row] && columnCandidateRows[row]);
-          hasAnyCandidate = hasAnyCandidate || (candidateRows[row] != 0);
-        }
-        if (!hasAnyCandidate) {
+        candidateRows = std::move(nextCandidates);
+        if (candidateRows.empty()) {
           break;
         }
-
-        auto kind = reader_->rowType_->childAt(columnIndex)->kind();
-        cache.columns[columnIndex] = decodeColumn(chunk, kind, rowGroup.rowCount, matchingPages);
       }
-
-      if (!hasAnyCandidate) {
-        continue;
-      }
-
-      for (vector_size_t row = 0; row < static_cast<vector_size_t>(rowGroup.rowCount); ++row) {
-        if (!candidateRows[row]) {
-          continue;
-        }
-        if (rowMatchesFilters(cache, row)) {
-          cache.selectedRows.push_back(row);
-        }
-      }
+      cache.selectedRows = std::move(candidateRows);
     }
 
     if (cache.selectedRows.empty()) {
       continue;
     }
-
-    // Decode projected columns only for row groups with at least one matching row.
-    // Reuse already decoded filter columns when projection overlaps filter columns.
-    for (auto columnIndex : projectedIndices_) {
-      if (cache.columns[columnIndex].has_value()) {
-        continue;
-      }
-      const auto matchingPages = collectPagesForRows(rowGroup.columns[columnIndex], cache.selectedRows);
-      if (matchingPages.empty()) {
-        continue;
-      }
-      auto kind = reader_->rowType_->childAt(columnIndex)->kind();
-      cache.columns[columnIndex] = decodeColumn(rowGroup.columns[columnIndex], kind, rowGroup.rowCount, matchingPages);
-    }
-
     currentGroup_ = std::move(cache);
     rowOffsetInGroup_ = 0;
     return true;
   }
+  clearPageDataCache();
   return false;
 }
 
 bool FvxRowReader::rowGroupMatches(const FvxReader::RowGroup &rowGroup) const {
+  // Row Group 级谓词下推：任一过滤列不可能命中则整组跳过。
   for (const auto &filter : filters_) {
     const auto &stats = rowGroup.columns[filter.columnIndex].stats;
     if (!columnMayMatch(stats, filter.op, filter.value)) {
@@ -390,16 +386,6 @@ bool FvxRowReader::columnMayMatch(const FvxReader::ColumnStats &stats, dwio::com
   return true;
 }
 
-bool FvxRowReader::rowMatchesFilters(const RowGroupCache &cache, vector_size_t row) const {
-  for (const auto &filter : filters_) {
-    const auto &column = getColumnBuffer(cache, filter.columnIndex);
-    if (!columnMatches(column, row, filter.op, filter.value)) {
-      return false;
-    }
-  }
-  return true;
-}
-
 bool FvxRowReader::columnMatches(const ColumnBuffer &column, vector_size_t row, dwio::common::CompareOp op,
                                  const Variant &value) const {
   if (value.isNull()) {
@@ -457,13 +443,8 @@ bool FvxRowReader::columnMatches(const ColumnBuffer &column, vector_size_t row, 
   return false;
 }
 
-const FvxRowReader::ColumnBuffer &FvxRowReader::getColumnBuffer(const RowGroupCache &cache, size_t columnIndex) const {
-  VELOX_CHECK(columnIndex < cache.columns.size(), "FVX: invalid column index {}", columnIndex);
-  VELOX_CHECK(cache.columns[columnIndex].has_value(), "FVX: column {} was not decoded", columnIndex);
-  return cache.columns[columnIndex].value();
-}
-
 std::vector<size_t> FvxRowReader::collectMatchingPages(const FvxReader::ColumnChunk &chunk, size_t columnIndex) const {
+  // 用 page 级 min/max 先做第一层裁剪。
   std::vector<size_t> pages;
   pages.reserve(chunk.pages.size());
   for (size_t pageIndex = 0; pageIndex < chunk.pages.size(); ++pageIndex) {
@@ -483,61 +464,98 @@ std::vector<size_t> FvxRowReader::collectMatchingPages(const FvxReader::ColumnCh
   return pages;
 }
 
-std::vector<size_t> FvxRowReader::collectPagesForRows(const FvxReader::ColumnChunk &chunk,
-                                                      const std::vector<vector_size_t> &rows) const {
-  std::vector<size_t> pages;
-  if (rows.empty()) {
-    return pages;
+std::vector<vector_size_t> FvxRowReader::collectRowsForMatchingPages(const FvxReader::ColumnChunk &chunk,
+                                                                     const std::vector<size_t> &matchingPages,
+                                                                     const std::vector<vector_size_t> &candidateRows) const {
+  // 线性合并候选行与候选页范围，得到更小的解码输入。
+  std::vector<vector_size_t> rows;
+  if (matchingPages.empty() || candidateRows.empty()) {
+    return rows;
   }
 
-  size_t rowIndex = 0;
-  for (size_t pageIndex = 0; pageIndex < chunk.pages.size(); ++pageIndex) {
-    const auto &page = chunk.pages[pageIndex];
-    const uint32_t pageStart = page.startRow;
-    const uint32_t pageEnd = page.startRow + page.rowCount;
-    while (rowIndex < rows.size() && static_cast<uint32_t>(rows[rowIndex]) < pageStart) {
-      ++rowIndex;
-    }
-    if (rowIndex >= rows.size()) {
-      break;
-    }
-    if (static_cast<uint32_t>(rows[rowIndex]) < pageEnd) {
-      pages.push_back(pageIndex);
-      while (rowIndex < rows.size() && static_cast<uint32_t>(rows[rowIndex]) < pageEnd) {
-        ++rowIndex;
+  rows.reserve(candidateRows.size());
+  size_t pageCursor = 0;
+  uint32_t pageStart = chunk.pages[matchingPages[pageCursor]].startRow;
+  uint32_t pageEnd = pageStart + chunk.pages[matchingPages[pageCursor]].rowCount;
+
+  for (auto row : candidateRows) {
+    VELOX_CHECK(row >= 0, "FVX: negative row index");
+    const auto rowValue = static_cast<uint32_t>(row);
+    while (pageCursor < matchingPages.size() && rowValue >= pageEnd) {
+      ++pageCursor;
+      if (pageCursor < matchingPages.size()) {
+        pageStart = chunk.pages[matchingPages[pageCursor]].startRow;
+        pageEnd = pageStart + chunk.pages[matchingPages[pageCursor]].rowCount;
       }
     }
+    if (pageCursor >= matchingPages.size()) {
+      break;
+    }
+    if (rowValue >= pageStart) {
+      rows.push_back(row);
+    }
   }
-  return pages;
+  return rows;
+}
+
+std::string_view FvxRowReader::readPageDataCached(const FvxReader::ColumnChunk::Page &page) const {
+  // 先查缓存，命中时避免重复 IO。
+  auto it = pageDataCache_.find(page.offset);
+  if (it != pageDataCache_.end()) {
+    VELOX_CHECK_EQ(it->second.size(), page.length, "FVX: cached page length mismatch");
+    return it->second;
+  }
+
+  if (pageDataCacheOrder_.size() >= kPageDataCacheCapacity) {
+    // 容量满时淘汰最早写入的页（简单 LRU 近似）。
+    const auto evictedOffset = pageDataCacheOrder_.front();
+    pageDataCacheOrder_.pop_front();
+    pageDataCache_.erase(evictedOffset);
+  }
+
+  auto pageData = reader_->file_->pread(page.offset, page.length);
+  auto [insertedIt, _] = pageDataCache_.emplace(page.offset, std::move(pageData));
+  pageDataCacheOrder_.push_back(page.offset);
+  VELOX_CHECK_EQ(insertedIt->second.size(), page.length, "FVX: page length mismatch");
+  return insertedIt->second;
+}
+
+void FvxRowReader::clearPageDataCache() const {
+  // 在行组边界清理缓存，控制内存并避免跨组干扰。
+  pageDataCache_.clear();
+  pageDataCacheOrder_.clear();
 }
 
 RowVectorPtr FvxRowReader::buildRowVectorFromCache(const RowGroupCache &cache, const vector_size_t *rows,
                                                    vector_size_t count) const {
+  VELOX_CHECK_NOT_NULL(cache.rowGroup, "FVX: row group cache is not initialized");
   std::vector<VectorPtr> children;
   children.reserve(projectedIndices_.size());
 
+  // 延迟物化：仅解码当前 batch 的投影列与目标行。
   for (size_t i = 0; i < projectedIndices_.size(); ++i) {
     const auto columnIndex = projectedIndices_[i];
-    const auto &column = getColumnBuffer(cache, columnIndex);
+    const auto kind = reader_->rowType_->childAt(columnIndex)->kind();
+    auto column = decodeColumnSelective(cache.rowGroup->columns[columnIndex], kind, rows, count, nullptr);
     auto type = outputType_->childAt(i);
     if (column.kind == TypeKind::BIGINT) {
       auto buffer = AlignedBuffer::allocate(count * sizeof(int64_t), reader_->pool_);
       auto *rawValues = buffer->asMutable<int64_t>();
       for (vector_size_t row = 0; row < count; ++row) {
-        rawValues[row] = column.int64s[rows[row]];
+        rawValues[row] = column.int64s[row];
       }
       children.push_back(std::make_shared<FlatVector<int64_t>>(reader_->pool_, type, nullptr, count, buffer));
     } else if (column.kind == TypeKind::INTEGER) {
       auto buffer = AlignedBuffer::allocate(count * sizeof(int32_t), reader_->pool_);
       auto *rawValues = buffer->asMutable<int32_t>();
       for (vector_size_t row = 0; row < count; ++row) {
-        rawValues[row] = column.int32s[rows[row]];
+        rawValues[row] = column.int32s[row];
       }
       children.push_back(std::make_shared<FlatVector<int32_t>>(reader_->pool_, type, nullptr, count, buffer));
     } else if (column.kind == TypeKind::VARCHAR) {
       size_t totalSize = 0;
       for (vector_size_t row = 0; row < count; ++row) {
-        totalSize += column.strings[rows[row]].size();
+        totalSize += column.strings[row].size();
       }
       auto values = AlignedBuffer::allocate(count * sizeof(StringView), reader_->pool_);
       auto *rawValues = values->asMutable<StringView>();
@@ -545,7 +563,7 @@ RowVectorPtr FvxRowReader::buildRowVectorFromCache(const RowGroupCache &cache, c
       char *cursor = dataBuffer->asMutable<char>();
       size_t bytesOffset = 0;
       for (vector_size_t row = 0; row < count; ++row) {
-        const auto &value = column.strings[rows[row]];
+        const auto &value = column.strings[row];
         std::memcpy(cursor + bytesOffset, value.data(), value.size());
         rawValues[row] = StringView(cursor + bytesOffset, value.size());
         bytesOffset += value.size();
@@ -561,88 +579,130 @@ RowVectorPtr FvxRowReader::buildRowVectorFromCache(const RowGroupCache &cache, c
   return std::make_shared<RowVector>(reader_->pool_, outputType_, nullptr, count, std::move(children));
 }
 
-FvxRowReader::ColumnBuffer FvxRowReader::decodeColumn(const FvxReader::ColumnChunk &chunk, TypeKind kind,
-                                                      uint32_t rowCount, const std::vector<size_t> &pages) const {
+FvxRowReader::ColumnBuffer FvxRowReader::decodeColumnSelective(const FvxReader::ColumnChunk &chunk, TypeKind kind,
+                                                               const vector_size_t *rows, vector_size_t count,
+                                                               const std::vector<size_t> *pages) const {
   ColumnBuffer buffer;
   buffer.kind = kind;
-  if (pages.empty()) {
+  if (count == 0) {
     return buffer;
   }
 
-  if (kind == TypeKind::BIGINT) {
-    buffer.int64s.resize(rowCount);
-    for (auto pageIndex : pages) {
-      const auto &page = chunk.pages[pageIndex];
-      auto pageData = reader_->file_->pread(page.offset, page.length);
-      const auto parsedPage = parsePageHeader(pageData);
-      VELOX_CHECK(parsedPage.header.pageType == 0, "FVX: unsupported page type");
-      VELOX_CHECK(parsedPage.header.encoding == 0, "FVX: unsupported page encoding");
-      VELOX_CHECK(parsedPage.header.rowCount == page.rowCount, "FVX: page row count mismatch");
-      VELOX_CHECK(parsedPage.header.uncompressedSize == page.uncompressedSize, "FVX: page uncompressed size mismatch");
-      VELOX_CHECK(parsedPage.header.compressedSize == page.compressedSize, "FVX: page compressed size mismatch");
-      VELOX_CHECK(parsedPage.header.compressedSize == parsedPage.header.uncompressedSize,
-                  "FVX: compressed pages are unsupported");
-      const auto byteSize = static_cast<size_t>(page.rowCount) * sizeof(int64_t);
-      const auto payloadSize = pageData.size() - parsedPage.payloadOffset;
-      VELOX_CHECK(byteSize == payloadSize, "FVX: bigint page payload size mismatch");
-      std::memcpy(buffer.int64s.data() + page.startRow, pageData.data() + parsedPage.payloadOffset, byteSize);
+  // selective 行号要求有序，便于按页线性推进。
+  for (vector_size_t i = 0; i < count; ++i) {
+    VELOX_CHECK(rows[i] >= 0, "FVX: negative row index");
+    if (i > 0) {
+      VELOX_CHECK(rows[i - 1] <= rows[i], "FVX: selective rows must be sorted");
     }
-  } else if (kind == TypeKind::INTEGER) {
-    buffer.int32s.resize(rowCount);
-    for (auto pageIndex : pages) {
-      const auto &page = chunk.pages[pageIndex];
-      auto pageData = reader_->file_->pread(page.offset, page.length);
-      const auto parsedPage = parsePageHeader(pageData);
-      VELOX_CHECK(parsedPage.header.pageType == 0, "FVX: unsupported page type");
-      VELOX_CHECK(parsedPage.header.encoding == 0, "FVX: unsupported page encoding");
-      VELOX_CHECK(parsedPage.header.rowCount == page.rowCount, "FVX: page row count mismatch");
-      VELOX_CHECK(parsedPage.header.uncompressedSize == page.uncompressedSize, "FVX: page uncompressed size mismatch");
-      VELOX_CHECK(parsedPage.header.compressedSize == page.compressedSize, "FVX: page compressed size mismatch");
-      VELOX_CHECK(parsedPage.header.compressedSize == parsedPage.header.uncompressedSize,
-                  "FVX: compressed pages are unsupported");
-      const auto byteSize = static_cast<size_t>(page.rowCount) * sizeof(int32_t);
-      const auto payloadSize = pageData.size() - parsedPage.payloadOffset;
-      VELOX_CHECK(byteSize == payloadSize, "FVX: integer page payload size mismatch");
-      std::memcpy(buffer.int32s.data() + page.startRow, pageData.data() + parsedPage.payloadOffset, byteSize);
-    }
-  } else if (kind == TypeKind::VARCHAR) {
-    buffer.strings.resize(rowCount);
-    for (auto pageIndex : pages) {
-      const auto &page = chunk.pages[pageIndex];
-      auto pageData = reader_->file_->pread(page.offset, page.length);
-      const auto parsedPage = parsePageHeader(pageData);
-      VELOX_CHECK(parsedPage.header.pageType == 0, "FVX: unsupported page type");
-      VELOX_CHECK(parsedPage.header.encoding == 0, "FVX: unsupported page encoding");
-      VELOX_CHECK(parsedPage.header.rowCount == page.rowCount, "FVX: page row count mismatch");
-      VELOX_CHECK(parsedPage.header.uncompressedSize == page.uncompressedSize, "FVX: page uncompressed size mismatch");
-      VELOX_CHECK(parsedPage.header.compressedSize == page.compressedSize, "FVX: page compressed size mismatch");
-      VELOX_CHECK(parsedPage.header.compressedSize == parsedPage.header.uncompressedSize,
-                  "FVX: compressed pages are unsupported");
+  }
 
-      std::string_view payload(pageData.data() + parsedPage.payloadOffset, pageData.size() - parsedPage.payloadOffset);
+  if (kind == TypeKind::BIGINT) {
+    buffer.int64s.resize(count);
+  } else if (kind == TypeKind::INTEGER) {
+    buffer.int32s.resize(count);
+  } else if (kind == TypeKind::VARCHAR) {
+    buffer.strings.resize(count);
+  } else {
+    VELOX_FAIL("FVX supports BIGINT, INTEGER, VARCHAR only");
+  }
+
+  auto decodePage = [&](const FvxReader::ColumnChunk::Page &page, size_t &rowCursor) {
+    if (rowCursor >= static_cast<size_t>(count)) {
+      return;
+    }
+
+    const uint32_t pageStart = page.startRow;
+    const uint32_t pageEnd = page.startRow + page.rowCount;
+    while (rowCursor < static_cast<size_t>(count) && static_cast<uint32_t>(rows[rowCursor]) < pageStart) {
+      VELOX_FAIL("FVX: selective rows contain gap before page start");
+    }
+
+    if (rowCursor >= static_cast<size_t>(count) || static_cast<uint32_t>(rows[rowCursor]) >= pageEnd) {
+      return;
+    }
+
+    // 对齐到当前页内的行区间，只解码落入该页的目标行。
+    const size_t pageRowStart = rowCursor;
+    while (rowCursor < static_cast<size_t>(count) && static_cast<uint32_t>(rows[rowCursor]) < pageEnd) {
+      ++rowCursor;
+    }
+
+    // 页数据统一走缓存读取，命中时无需再次 pread。
+    const auto pageData = readPageDataCached(page);
+    const auto parsedPage = parsePageHeader(pageData);
+    VELOX_CHECK(parsedPage.header.pageType == 0, "FVX: unsupported page type");
+    VELOX_CHECK(parsedPage.header.encoding == 0, "FVX: unsupported page encoding");
+    VELOX_CHECK(parsedPage.header.rowCount == page.rowCount, "FVX: page row count mismatch");
+    VELOX_CHECK(parsedPage.header.uncompressedSize == page.uncompressedSize, "FVX: page uncompressed size mismatch");
+    VELOX_CHECK(parsedPage.header.compressedSize == page.compressedSize, "FVX: page compressed size mismatch");
+    VELOX_CHECK(parsedPage.header.compressedSize == parsedPage.header.uncompressedSize,
+                "FVX: compressed pages are unsupported");
+    std::string_view payload(pageData.data() + parsedPage.payloadOffset, pageData.size() - parsedPage.payloadOffset);
+
+    if (kind == TypeKind::BIGINT) {
+      VELOX_CHECK(payload.size() == static_cast<size_t>(page.rowCount) * sizeof(int64_t),
+                  "FVX: bigint page payload size mismatch");
+      for (size_t i = pageRowStart; i < rowCursor; ++i) {
+        const auto rowInPage = static_cast<uint32_t>(rows[i]) - pageStart;
+        int64_t value;
+        std::memcpy(&value, payload.data() + static_cast<size_t>(rowInPage) * sizeof(int64_t), sizeof(int64_t));
+        buffer.int64s[i] = value;
+      }
+    } else if (kind == TypeKind::INTEGER) {
+      VELOX_CHECK(payload.size() == static_cast<size_t>(page.rowCount) * sizeof(int32_t),
+                  "FVX: integer page payload size mismatch");
+      for (size_t i = pageRowStart; i < rowCursor; ++i) {
+        const auto rowInPage = static_cast<uint32_t>(rows[i]) - pageStart;
+        int32_t value;
+        std::memcpy(&value, payload.data() + static_cast<size_t>(rowInPage) * sizeof(int32_t), sizeof(int32_t));
+        buffer.int32s[i] = value;
+      }
+    } else {
       size_t offset = 0;
       uint32_t totalBytes = readPod<uint32_t>(payload, offset);
       std::vector<uint32_t> offsets(page.rowCount + 1);
       const auto offsetsByteSize = offsets.size() * sizeof(uint32_t);
       VELOX_CHECK(offset + offsetsByteSize + totalBytes == payload.size(), "FVX: varchar page payload size mismatch");
       std::memcpy(offsets.data(), payload.data() + offset, offsetsByteSize);
-      offset += offsets.size() * sizeof(uint32_t);
+      offset += offsetsByteSize;
       const char *base = payload.data() + offset;
-      for (uint32_t i = 0; i < page.rowCount; ++i) {
-        uint32_t start = offsets[i];
-        uint32_t end = offsets[i + 1];
+      for (size_t i = pageRowStart; i < rowCursor; ++i) {
+        const auto rowInPage = static_cast<uint32_t>(rows[i]) - pageStart;
+        const uint32_t start = offsets[rowInPage];
+        const uint32_t end = offsets[rowInPage + 1];
         VELOX_CHECK(end >= start, "FVX: invalid string offsets");
-        buffer.strings[page.startRow + i] = std::string(base + start, end - start);
+        buffer.strings[i] = std::string(base + start, end - start);
       }
       VELOX_CHECK(offsets.back() == totalBytes, "FVX: string data length mismatch");
     }
+  };
+
+  size_t rowCursor = 0;
+  if (pages != nullptr) {
+    // 过滤路径：仅遍历统计命中的页。
+    for (auto pageIndex : *pages) {
+      decodePage(chunk.pages[pageIndex], rowCursor);
+      if (rowCursor >= static_cast<size_t>(count)) {
+        break;
+      }
+    }
   } else {
-    VELOX_FAIL("FVX supports BIGINT, INTEGER, VARCHAR only");
+    // 投影路径：按页顺序扫描并挑出当前 batch 需要的行。
+    for (const auto &page : chunk.pages) {
+      decodePage(page, rowCursor);
+      if (rowCursor >= static_cast<size_t>(count)) {
+        break;
+      }
+    }
   }
+
+  VELOX_CHECK(rowCursor == static_cast<size_t>(count), "FVX: selective rows out of page bounds");
   return buffer;
 }
 
 void FvxRowReader::buildProjection() {
+  projectedIndices_.clear();
+
   if (!options_.hasProjection()) {
     projectedIndices_.resize(reader_->rowType_->size());
     for (size_t i = 0; i < projectedIndices_.size(); ++i) {

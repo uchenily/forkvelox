@@ -1,5 +1,6 @@
 #pragma once
 
+#include <deque>
 #include <memory>
 #include <optional>
 #include <string>
@@ -92,8 +93,7 @@ private:
   };
 
   struct RowGroupCache {
-    uint32_t rowCount{0};
-    std::vector<std::optional<ColumnBuffer>> columns;
+    const FvxReader::RowGroup *rowGroup{nullptr};
     std::vector<vector_size_t> selectedRows;
   };
 
@@ -104,24 +104,28 @@ private:
   std::vector<size_t> filterColumnIndices_;
   std::vector<PreparedFilter> filters_;
   std::vector<std::vector<size_t>> filterIndicesByColumn_;
+  mutable std::unordered_map<uint64_t, std::string> pageDataCache_;
+  mutable std::deque<uint64_t> pageDataCacheOrder_;
   size_t rowGroupIndex_{0};
   vector_size_t rowOffsetInGroup_{0};
   std::optional<RowGroupCache> currentGroup_;
+  static constexpr size_t kPageDataCacheCapacity = 64;
 
   bool loadNextMatchingRowGroup();
   bool rowGroupMatches(const FvxReader::RowGroup &rowGroup) const;
   bool columnMayMatch(const FvxReader::ColumnStats &stats, dwio::common::CompareOp op, const Variant &value) const;
-  bool rowMatchesFilters(const RowGroupCache &cache, vector_size_t row) const;
   bool columnMatches(const ColumnBuffer &column, vector_size_t row, dwio::common::CompareOp op,
                      const Variant &value) const;
-  const ColumnBuffer &getColumnBuffer(const RowGroupCache &cache, size_t columnIndex) const;
   std::vector<size_t> collectMatchingPages(const FvxReader::ColumnChunk &chunk, size_t columnIndex) const;
-  std::vector<size_t> collectPagesForRows(const FvxReader::ColumnChunk &chunk,
-                                          const std::vector<vector_size_t> &rows) const;
+  std::vector<vector_size_t> collectRowsForMatchingPages(const FvxReader::ColumnChunk &chunk,
+                                                         const std::vector<size_t> &matchingPages,
+                                                         const std::vector<vector_size_t> &candidateRows) const;
+  std::string_view readPageDataCached(const FvxReader::ColumnChunk::Page &page) const;
+  void clearPageDataCache() const;
 
   RowVectorPtr buildRowVectorFromCache(const RowGroupCache &cache, const vector_size_t *rows, vector_size_t count) const;
-  ColumnBuffer decodeColumn(const FvxReader::ColumnChunk &chunk, TypeKind kind, uint32_t rowCount,
-                            const std::vector<size_t> &pages) const;
+  ColumnBuffer decodeColumnSelective(const FvxReader::ColumnChunk &chunk, TypeKind kind, const vector_size_t *rows,
+                                     vector_size_t count, const std::vector<size_t> *pages) const;
   void buildProjection();
   void buildFiltersAndRequiredColumns();
 };

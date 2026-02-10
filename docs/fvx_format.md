@@ -89,6 +89,14 @@ FVX 是一个参考 Parquet 设计的轻量列式存储格式，面向 ForkVelox
 - 对命中的行组，先基于页级 min/max 跳过不可能命中的页
 - 对候选页执行行级过滤，确保输出结果严格满足过滤条件
 
+### 选择性解码与延迟物化
+
+- 过滤阶段优先解码过滤列，先收敛 `selectedRows`。
+- 非过滤投影列不在行组加载时提前解码，而是在 `next(batchSize)` 构建输出批次时按需解码。
+- 按批次只解码当前批次中的行（`selectedRows` 子集），避免对页内无关行做完整解码。
+- 过滤列解码采用“候选行 + 候选页”方式：先用页统计过滤页，再对候选行做 selective decode 并立即更新候选集合。
+- Reader 维护行组内页数据缓存（按 page offset），相邻 batch 的投影解码可复用已读取页，减少重复 IO 与页头解析。
+
 ## 代码位置
 
 - Writer：`src/velox/dwio/fvx/FvxWriter.h`、`src/velox/dwio/fvx/FvxWriter.cpp`
