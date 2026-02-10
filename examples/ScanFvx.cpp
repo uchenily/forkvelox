@@ -60,7 +60,7 @@ RowVectorPtr makeSampleData(memory::MemoryPool *pool) {
   constexpr std::array<int64_t, 10> kIds = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
   constexpr std::array<int32_t, 10> kPrices = {3, 6, 9, 12, 15, 18, 21, 24, 27, 30};
   constexpr std::array<const char *, 10> kLabels = {"alpha", "beta", "gamma", "delta", "skip",
-                                                     "omega", "pi",   "tau",   "sigma", "zeta"};
+                                                    "omega", "pi",   "tau",   "sigma", "zeta"};
   const vector_size_t numRows = static_cast<vector_size_t>(kIds.size());
   VELOX_CHECK_EQ(kPrices.size(), kIds.size(), "Sample price array size mismatch");
   VELOX_CHECK_EQ(kLabels.size(), kIds.size(), "Sample label array size mismatch");
@@ -150,13 +150,12 @@ int main(int argc, char **argv) {
   std::vector<std::string> actualRows;
   while (rowReader->next(3, batch)) {
     auto *rowVector = batch->asChecked<RowVector>();
+    std::cout << "--------------\n" << rowVector->toString() << std::endl;
     for (vector_size_t i = 0; i < rowVector->size(); ++i) {
       auto row = rowVector->toString(i);
-      std::cout << row << std::endl;
       actualRows.push_back(row);
     }
   }
-  std::cout.flush();
 
   if (actualRows != expectedRows) {
     std::cout << "Detection failed: scan result does not match row-level filter expectation." << std::endl;
