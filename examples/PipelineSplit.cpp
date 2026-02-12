@@ -80,8 +80,6 @@ int main(int argc, char **argv) {
     }
   }
 
-  std::cout << "=========== plan stats ============\n" << printPlanWithStats(*plan, task->taskStats());
-
   std::vector<std::string> expectedRows;
   expectedRows.reserve(12);
   for (int64_t value = 1; value < batchSize * numBatches; value += 2) {

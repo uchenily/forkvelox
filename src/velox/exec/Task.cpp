@@ -620,6 +620,10 @@ std::vector<RowVectorPtr> Task::run() {
     }
   }
 
+  if (plan_) {
+    std::cout << printPlanWithStats(false) << std::endl;
+  }
+
   return results;
 }
 

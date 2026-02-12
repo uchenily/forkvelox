@@ -106,8 +106,6 @@ int main(int argc, char **argv) {
     }
   }
 
-  std::cout << "=========== plan stats ============\n" << printPlanWithStats(*plan, task->taskStats());
-
   std::vector<std::string> expectedRows = {"{1, C1}", "{2, C2}", "{3, C3}"};
   std::sort(actualRows.begin(), actualRows.end());
   std::sort(expectedRows.begin(), expectedRows.end());
