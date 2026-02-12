@@ -13,6 +13,7 @@ add_library(velox_common
     velox/dwio/fvx/RegisterFvxReader.cpp
     velox/exec/LocalExchange.cpp
     velox/exec/LocalPlanner.cpp
+    velox/exec/PlanNodeStats.cpp
     velox/exec/Task.cpp
     velox/expression/Expr.cpp
     velox/expression/LambdaExpr.cpp

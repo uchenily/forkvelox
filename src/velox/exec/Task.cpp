@@ -16,6 +16,7 @@
 #include "velox/exec/Driver.h"
 #include "velox/exec/LocalPlanner.h"
 #include "velox/exec/Operator.h"
+#include "velox/exec/PlanNodeStats.h"
 #include "velox/exec/Split.h"
 #include "velox/vector/FlatVector.h"
 
@@ -252,11 +253,49 @@ std::string Task::errorMessage() const {
 
 bool Task::shouldStop() const { return isCancelled() || hasError(); }
 
+TaskStats Task::taskStats() const {
+  std::lock_guard<std::mutex> lock(statsMutex_);
+  return taskStats_;
+}
+
+std::string Task::printPlanWithStats(bool includeCustomStats) const {
+  auto stats = taskStats();
+  if (!plan_) {
+    return "";
+  }
+  return exec::printPlanWithStats(*plan_, stats, includeCustomStats);
+}
+
+void Task::addDriverStats(size_t pipelineId, const std::vector<OperatorStats> &stats) {
+  std::lock_guard<std::mutex> lock(statsMutex_);
+  if (pipelineId >= taskStats_.pipelineStats.size()) {
+    return;
+  }
+
+  auto &pipelineStats = taskStats_.pipelineStats[pipelineId];
+  for (const auto &driverStat : stats) {
+    if (!driverStat.touched && driverStat.inputRows == 0 && driverStat.outputRows == 0 && driverStat.cpuNanos == 0) {
+      continue;
+    }
+
+    auto it = std::find_if(pipelineStats.operatorStats.begin(), pipelineStats.operatorStats.end(),
+                           [&](const auto &pipelineOpStat) {
+                             return pipelineOpStat.planNodeId == driverStat.planNodeId &&
+                                    pipelineOpStat.operatorType == driverStat.operatorType;
+                           });
+    if (it == pipelineStats.operatorStats.end()) {
+      pipelineStats.operatorStats.push_back(driverStat);
+    } else {
+      it->add(driverStat);
+    }
+  }
+}
+
 void Task::enqueue(folly::Executor *executor, std::shared_ptr<Driver> driver, std::shared_ptr<core::ExecCtx> execCtx,
-                   bool outputPipeline, std::vector<RowVectorPtr> *results, std::mutex *resultsMutex,
+                   bool outputPipeline, size_t pipelineId, std::vector<RowVectorPtr> *results, std::mutex *resultsMutex,
                    std::shared_ptr<std::latch> done) {
   executor->add([this, executor, driver = std::move(driver), execCtx = std::move(execCtx), outputPipeline, results,
-                 resultsMutex, done = std::move(done)]() mutable {
+                 pipelineId, resultsMutex, done = std::move(done)]() mutable {
     if (shouldStop()) {
       done->count_down();
       return;
@@ -290,12 +329,13 @@ void Task::enqueue(folly::Executor *executor, std::shared_ptr<Driver> driver, st
     if (reason == BlockingReason::kYield || reason == BlockingReason::kWaitForSplit ||
         reason == BlockingReason::kWaitForExchange || reason == BlockingReason::kWaitForJoin) {
       if (!shouldStop()) {
-        enqueue(executor, std::move(driver), std::move(execCtx), outputPipeline, results, resultsMutex,
+        enqueue(executor, std::move(driver), std::move(execCtx), outputPipeline, pipelineId, results, resultsMutex,
                 std::move(done));
         return;
       }
     }
 
+    addDriverStats(pipelineId, driver->stats());
     done->count_down();
   });
 }
@@ -423,6 +463,35 @@ std::vector<RowVectorPtr> Task::run() {
     return node ? node->toString() : std::string("Unknown");
   };
 
+  {
+    std::lock_guard<std::mutex> lock(statsMutex_);
+    taskStats_ = TaskStats{};
+    taskStats_.pipelineStats.reserve(driverFactories.size());
+    for (const auto &factory : driverFactories) {
+      taskStats_.pipelineStats.emplace_back(factory->inputDriver, factory->outputPipeline);
+      auto &pipelineStats = taskStats_.pipelineStats.back();
+      pipelineStats.operatorStats.reserve(factory->planNodes.size() + (factory->operatorSupplier ? 1 : 0));
+
+      for (const auto &node : factory->planNodes) {
+        OperatorStats stats;
+        stats.planNodeId = node->id();
+        stats.operatorType = opNameForNode(node, false);
+        if (std::dynamic_pointer_cast<const core::FileScanNode>(node)) {
+          auto splitIt = splits_.find(node->id());
+          stats.numSplits = splitIt == splits_.end() ? 1 : static_cast<int>(splitIt->second.size());
+        }
+        pipelineStats.operatorStats.push_back(std::move(stats));
+      }
+
+      if (factory->operatorSupplier && factory->consumerNode) {
+        OperatorStats stats;
+        stats.planNodeId = factory->consumerNode->id();
+        stats.operatorType = opNameForNode(factory->consumerNode, true);
+        pipelineStats.operatorStats.push_back(std::move(stats));
+      }
+    }
+  }
+
   for (size_t i = 0; i < driverFactories.size(); ++i) {
     std::cout << "[Task] Pipeline " << i << " drivers=" << driverFactories[i]->numDrivers
               << (driverFactories[i]->outputPipeline ? " output" : "")
@@ -538,8 +607,8 @@ std::vector<RowVectorPtr> Task::run() {
             return makeOperatorForNode(node, ctx, sourceStates, bridges, exchanges);
           });
       driver->setCancelCheck([&]() { return shouldStop(); });
-      enqueue(executor, std::move(driver), std::move(execCtx), driverFactories[pipelineId]->outputPipeline, &results,
-              &resultsMutex, done);
+      enqueue(executor, std::move(driver), std::move(execCtx), driverFactories[pipelineId]->outputPipeline, pipelineId,
+              &results, &resultsMutex, done);
     }
 
     done->wait();

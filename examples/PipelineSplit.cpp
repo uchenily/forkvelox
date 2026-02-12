@@ -8,6 +8,7 @@
 #include "velox/buffer/Buffer.h"
 #include "velox/common/base/Exceptions.h"
 #include "velox/common/memory/Memory.h"
+#include "velox/exec/PlanNodeStats.h"
 #include "velox/exec/Task.h"
 #include "velox/exec/tests/utils/PlanBuilder.h"
 #include "velox/functions/registration/RegistrationFunctions.h"
@@ -78,6 +79,8 @@ int main(int argc, char **argv) {
       std::cout << row << std::endl;
     }
   }
+
+  std::cout << "=========== plan stats ============\n" << printPlanWithStats(*plan, task->taskStats());
 
   std::vector<std::string> expectedRows;
   expectedRows.reserve(12);
