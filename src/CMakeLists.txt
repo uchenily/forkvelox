@@ -1,6 +1,7 @@
 add_library(velox_common
     velox/common/memory/Memory.cpp
     velox/common/base/Log.cpp
+    velox/common/dynamic_registry/DynamicLibraryLoader.cpp
     velox/common/file/FileSystems.cpp
     velox/common/file/File.cpp
     velox/dwio/common/RowVectorFile.cpp
@@ -27,3 +28,7 @@ add_library(velox_common
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(velox_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+if (UNIX)
+  target_link_libraries(velox_common PUBLIC dl)
+endif()
+set_target_properties(velox_common PROPERTIES POSITION_INDEPENDENT_CODE ON)
