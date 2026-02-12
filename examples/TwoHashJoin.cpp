@@ -85,6 +85,7 @@ int main(int argc, char **argv) {
 
   builder.printPlanTree("TwoJoin Plan");
   auto plan = builder.planNode();
+  std::cout << plan->toString(true, true) << '\n';
 
   auto queryCtx = core::QueryCtx::create();
   auto task = Task::create("two_hash_join_demo", plan, queryCtx, Task::ExecutionMode::kParallel);

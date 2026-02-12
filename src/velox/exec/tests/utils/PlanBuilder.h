@@ -53,7 +53,7 @@ public:
   }
 
   PlanBuilder &topN(const std::vector<std::string> &keys, int count, bool isPartial) {
-    root_ = std::make_shared<core::TopNNode>(generator_->next(), root_, count, keys);
+    root_ = std::make_shared<core::TopNNode>(generator_->next(), root_, count, keys, isPartial);
     return *this;
   }
 
@@ -94,7 +94,8 @@ public:
   PlanBuilder &hashJoin(const std::vector<std::string> &leftKeys, const std::vector<std::string> &rightKeys,
                         core::PlanNodePtr buildSide, const std::string &filter,
                         const std::vector<std::string> &output) {
-    root_ = std::make_shared<core::HashJoinNode>(generator_->next(), root_, buildSide);
+    root_ = std::make_shared<core::HashJoinNode>(generator_->next(), root_, buildSide, leftKeys, rightKeys, filter,
+                                                 output);
     return *this;
   }
 

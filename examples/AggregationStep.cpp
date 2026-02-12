@@ -104,6 +104,7 @@ int main(int argc, char **argv) {
                         .singleAggregation({}, {"sum(my_col) AS sum_col", "count(1) AS cnt", "avg(my_col) AS avg_col"})
                         .planNode();
 
+  std::cout << singlePlan->toString(true, true) << '\n';
   std::cout << "Running single-step aggregation." << std::endl;
   runTaskWithExpectedRows("agg_single", singlePlan, 3, {"{21, 6, 3}"}, false);
 
@@ -117,6 +118,7 @@ int main(int argc, char **argv) {
           .finalAggregation({}, {"sum(my_col) AS sum_col", "count(1) AS cnt", "avg(my_col) AS avg_col"})
           .planNode();
 
+  std::cout << partialFinalPlan->toString(true, true) << '\n';
   std::cout << "Running partial/final aggregation." << std::endl;
   runTaskWithExpectedRows("agg_partial_final", partialFinalPlan, 3, {"{21, 6, 3}"}, false);
 
@@ -134,6 +136,7 @@ int main(int argc, char **argv) {
           .finalAggregation({}, {"sum(my_col) AS sum_col", "count(1) AS cnt", "avg(my_col) AS avg_col"})
           .planNode();
 
+  std::cout << intermediatePlan->toString(true, true) << '\n';
   std::cout << "Running partial/intermediate/final aggregation." << std::endl;
   runTaskWithExpectedRows("agg_intermediate", intermediatePlan, 3, {"{21, 6, 3}"}, false);
 
@@ -159,6 +162,7 @@ int main(int argc, char **argv) {
                                      .finalAggregation({"k"}, {"sum(v) AS sum_v", "count(1) AS cnt"})
                                      .planNode();
 
+  std::cout << groupedPartialFinalPlan->toString(true, true) << '\n';
   std::cout << "Running group-by partial/final aggregation." << std::endl;
   runTaskWithExpectedRows("agg_group_by_partial_final", groupedPartialFinalPlan, 3,
                           {"{1, 30, 2}", "{2, 70, 2}", "{3, 110, 2}"}, false);
