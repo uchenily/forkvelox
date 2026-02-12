@@ -171,3 +171,8 @@ ForkVelox 的 Vector 体系是一个“最小可用子集”，用于支撑示�
 
 - 以上差异与改进建议均以上游 Velox 作为参考基线，保持“轻量可运行”与“逐步向上游对齐”的平衡。
 - 如果后续计划引入更多算子或 IO 格式，建议优先实现 `ConstantVector` 与 `DictionaryVector`，它们是表达式执行与过滤/投影的常见基础类型。
+
+
+**参考**
+
+https://facebookincubator.github.io/velox/develop/vectors.html

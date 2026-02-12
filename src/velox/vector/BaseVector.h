@@ -21,6 +21,20 @@ class BaseVector : public std::enable_shared_from_this<BaseVector> {
 public:
   static constexpr std::string_view kNullValueString = "null";
 
+  static std::shared_ptr<BaseVector> create(const std::shared_ptr<const Type> &type, vector_size_t size,
+                                            memory::MemoryPool *pool);
+
+  template <typename TVector = BaseVector>
+  static std::shared_ptr<TVector> create(const std::shared_ptr<const Type> &type, vector_size_t size,
+                                         memory::MemoryPool *pool) {
+    static_assert(std::is_base_of_v<BaseVector, TVector>);
+    auto vector = create(type, size, pool);
+    auto casted = std::dynamic_pointer_cast<TVector>(vector);
+    VELOX_CHECK(casted != nullptr, "BaseVector::create requested type {} but created {}", typeid(TVector).name(),
+                typeid(*vector).name());
+    return casted;
+  }
+
 public:
   BaseVector(memory::MemoryPool *pool, std::shared_ptr<const Type> type, VectorEncoding::Simple encoding,
              BufferPtr nulls, vector_size_t length)

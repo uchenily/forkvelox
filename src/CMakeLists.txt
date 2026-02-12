@@ -1,4 +1,5 @@
 add_library(velox_common
+    velox/vector/BaseVector.cpp
     velox/common/memory/Memory.cpp
     velox/common/base/Log.cpp
     velox/common/dynamic_registry/DynamicLibraryLoader.cpp

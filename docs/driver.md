@@ -96,3 +96,8 @@ return kNotBlocked;
 
 - 若要支持更多阻塞类型（split/exchange/join），需要在 `run()` 中识别 operator 返回的阻塞状态，并转换为 `BlockingReason`。
 - 若要支持多 source 或分支 pipeline，需要在 operator 图构建与 `run()` 推进策略上扩展。
+
+
+**参考**
+
+https://facebookincubator.github.io/velox/develop/task.html
