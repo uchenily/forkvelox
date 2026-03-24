@@ -11,6 +11,12 @@ namespace facebook::velox {
 
 using vector_size_t = int32_t;
 
+// A selectivityVector is used to logically filter / select data in place.
+// The goal here is to be able to pass this vector between filter stages on
+// different vectors while only maintaining a single copy of state and more
+// importantly not ever having to re-layout the physical data. Further the
+// SelectivityVector can be used to optimize filtering by skipping elements
+// that where previously filtered by another filter / column
 class SelectivityVector {
 public:
   SelectivityVector(vector_size_t size, bool allSelected = true) : size_(size), allSelected_(allSelected) {
