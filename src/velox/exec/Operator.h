@@ -2,6 +2,7 @@
 #include "velox/common/base/Exceptions.h"
 #include "velox/core/PlanNode.h"
 #include "velox/dwio/common/RowVectorFile.h"
+#include "velox/exec/BlockingReason.h"
 #include "velox/exec/LocalExchange.h"
 #include "velox/expression/Expr.h"
 #include "velox/functions/aggregates/AggregateFunction.h"
@@ -22,6 +23,8 @@ namespace facebook::velox::exec {
 class SourceState {
 public:
   virtual ~SourceState() = default;
+  virtual BlockingReason isBlocked(ContinueFuture* future) = 0;
+  virtual bool isFinished() const = 0;
   virtual RowVectorPtr next() = 0;
 };
 
@@ -36,6 +39,7 @@ public:
   virtual void noMoreInput() { noMoreInput_ = true; }
 
   virtual RowVectorPtr getOutput() = 0;
+  virtual BlockingReason isBlocked(ContinueFuture* future) { return BlockingReason::kNotBlocked; }
   virtual bool isFinished() = 0;
 
   core::PlanNodePtr planNode() const { return planNode_; }
@@ -45,11 +49,24 @@ protected:
   bool noMoreInput_ = false;
 };
 
-using OperatorSupplier = std::function<std::shared_ptr<Operator>(core::ExecCtx *)>;
-
 class HashJoinBridge {
 public:
   using BuildRow = std::pair<size_t, vector_size_t>;
+
+  void setOnStateChange(std::function<void()> onStateChange) { onStateChange_ = std::move(onStateChange); }
+
+  BlockingReason blockingReason(ContinueFuture* future) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (buildFinished_) {
+      return BlockingReason::kNotBlocked;
+    }
+    auto waiter = std::make_shared<ContinuePromise>();
+    if (future != nullptr) {
+      *future = waiter->get_future().share();
+    }
+    waiters_.push_back(waiter);
+    return BlockingReason::kWaitForJoinBuild;
+  }
 
   void addBuildBatch(const RowVectorPtr &batch) {
     if (!batch || batch->size() == 0) {
@@ -68,8 +85,18 @@ public:
   }
 
   void noMoreBuildInput() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    buildFinished_ = true;
+    std::vector<std::shared_ptr<ContinuePromise>> waiters;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      buildFinished_ = true;
+      waiters.swap(waiters_);
+    }
+    if (onStateChange_) {
+      onStateChange_();
+    }
+    for (auto& waiter : waiters) {
+      waiter->set_value();
+    }
   }
 
   bool isBuildFinished() const { return buildFinished_; }
@@ -83,6 +110,8 @@ private:
   std::unordered_multimap<int64_t, BuildRow> buildIndex_;
   bool buildFinished_{false};
   mutable std::mutex mutex_;
+  std::function<void()> onStateChange_;
+  std::vector<std::shared_ptr<ContinuePromise>> waiters_;
 };
 
 class ValuesOperator : public Operator {
@@ -96,10 +125,13 @@ public:
   }
   void addInput(RowVectorPtr input) override {}
   void noMoreInput() override { noMoreInput_ = true; }
+  BlockingReason isBlocked(ContinueFuture* future) override {
+    return state_ ? state_->isBlocked(future) : BlockingReason::kNotBlocked;
+  }
   RowVectorPtr getOutput() override {
     if (state_) {
       auto batch = state_->next();
-      if (!batch) {
+      if (!batch && state_->isFinished()) {
         finished_ = true;
       }
       return batch;
@@ -108,7 +140,7 @@ public:
       return values_[current_++];
     return nullptr;
   }
-  bool isFinished() override { return state_ ? finished_ : current_ >= values_.size(); }
+  bool isFinished() override { return state_ ? (finished_ || state_->isFinished()) : current_ >= values_.size(); }
   bool needsInput() const override { return false; }
 
 private:
@@ -124,12 +156,19 @@ public:
       : Operator(node), queue_(std::move(queue)) {}
   bool needsInput() const override { return false; }
   void addInput(RowVectorPtr input) override {}
+  BlockingReason isBlocked(ContinueFuture* future) override { return queue_->blockingReason(future); }
   RowVectorPtr getOutput() override {
     if (finished_) {
       return nullptr;
     }
     RowVectorPtr batch;
     if (!queue_->dequeue(batch)) {
+      if (queue_->blockingReason() == BlockingReason::kNotBlocked) {
+        finished_ = true;
+      }
+      return nullptr;
+    }
+    if (!batch) {
       finished_ = true;
       return nullptr;
     }
@@ -204,6 +243,9 @@ public:
   }
   bool needsInput() const override { return false; }
   void addInput(RowVectorPtr input) override {}
+  BlockingReason isBlocked(ContinueFuture* future) override {
+    return state_ ? state_->isBlocked(future) : BlockingReason::kNotBlocked;
+  }
   RowVectorPtr getOutput() override {
     if (produced_) {
       return nullptr;
@@ -211,7 +253,7 @@ public:
     RowVectorPtr data;
     if (state_) {
       data = state_->next();
-      if (!data) {
+      if (!data && state_->isFinished()) {
         finished_ = true;
       }
     } else {
@@ -925,6 +967,9 @@ public:
   HashProbeOperator(core::PlanNodePtr node, core::ExecCtx *ctx, std::shared_ptr<HashJoinBridge> bridge)
       : Operator(node), ctx_(ctx), bridge_(std::move(bridge)) {}
   bool needsInput() const override { return !noMoreInput_; }
+  BlockingReason isBlocked(ContinueFuture* future) override {
+    return bridge_->blockingReason(future);
+  }
   void addInput(RowVectorPtr input) override {
     if (!input || input->size() == 0 || !bridge_) {
       return;
