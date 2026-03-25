@@ -45,12 +45,24 @@ class Task : public std::enable_shared_from_this<Task> {
   void addSplit(const core::PlanNodeId& planNodeId, exec::Split split);
   void noMoreSplits(const core::PlanNodeId& planNodeId);
 
+  void start();
+  bool supportSerialExecutionMode() const;
+  RowVectorPtr next(ContinueFuture* future = nullptr);
   std::vector<RowVectorPtr> run();
   const TaskStats& stats() const {
     return stats_;
   }
 
  private:
+  struct DriverBlockingState {
+    ContinueFuture future;
+    BlockingReason reason{BlockingReason::kNotBlocked};
+
+    bool blocked(ContinueFuture* outFuture = nullptr) const;
+    void set(ContinueFuture inFuture, BlockingReason inReason);
+    void clear();
+  };
+
   struct DriverEntry {
     std::shared_ptr<Driver> driver;
     bool finished{false};
@@ -72,6 +84,7 @@ class Task : public std::enable_shared_from_this<Task> {
       core::ExecCtx* execCtx);
   void workerLoop();
   void enqueueDriverLocked(size_t driverIndex);
+  void scheduleWorkers();
   void wakeSchedulers();
   void resumeDriverFromFuture(size_t driverIndex, uint64_t blockedSequence);
   bool allDriversFinishedLocked() const;
@@ -89,6 +102,7 @@ class Task : public std::enable_shared_from_this<Task> {
   std::unordered_map<core::PlanNodeId, std::shared_ptr<SourceState>> sourceStates_;
 
   std::vector<DriverEntry> drivers_;
+  std::vector<DriverBlockingState> driverBlockingStates_;
   std::vector<size_t> runnable_;
   std::vector<RowVectorPtr> results_;
   TaskStats stats_;
@@ -97,6 +111,7 @@ class Task : public std::enable_shared_from_this<Task> {
   std::condition_variable cv_;
   bool cancelled_{false};
   bool failed_{false};
+  bool workersScheduled_{false};
   std::exception_ptr exception_;
   size_t activeWorkers_{0};
   size_t finishedDrivers_{0};

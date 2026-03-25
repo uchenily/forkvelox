@@ -29,7 +29,10 @@ class Driver {
       std::vector<std::shared_ptr<Operator>> operators,
       std::shared_ptr<core::ExecCtx> execCtx = nullptr);
 
-  BlockingReason run(std::vector<RowVectorPtr>& results, ContinueFuture* future = nullptr);
+  BlockingReason run(
+      std::vector<RowVectorPtr>& results,
+      ContinueFuture* future = nullptr,
+      bool stopAtFirstBatch = false);
   BlockingReason isBlocked();
   bool isFinished() const;
 

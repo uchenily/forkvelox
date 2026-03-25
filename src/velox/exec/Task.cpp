@@ -1,5 +1,6 @@
 #include "velox/exec/Task.h"
 
+#include <atomic>
 #include <chrono>
 #include <deque>
 #include <stdexcept>
@@ -133,6 +134,22 @@ void collectJoinBridges(
   }
 }
 
+ContinueFuture collectAnyContinueFutures(std::vector<ContinueFuture> futures) {
+  auto promise = std::make_shared<ContinuePromise>();
+  auto anyFuture = promise->get_future().share();
+  auto done = std::make_shared<std::atomic<bool>>(false);
+  for (auto& future : futures) {
+    std::thread([promise, done, future]() mutable {
+      future.wait();
+      bool expected = false;
+      if (done->compare_exchange_strong(expected, true)) {
+        promise->set_value();
+      }
+    }).detach();
+  }
+  return anyFuture;
+}
+
 } // namespace
 
 const char* blockingReasonName(BlockingReason reason) {
@@ -153,12 +170,38 @@ const char* blockingReasonName(BlockingReason reason) {
   return "Unknown";
 }
 
+bool Task::DriverBlockingState::blocked(ContinueFuture* outFuture) const {
+  if (!future.valid()) {
+    return false;
+  }
+  if (future.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+    return false;
+  }
+  if (outFuture != nullptr) {
+    *outFuture = future;
+  }
+  return true;
+}
+
+void Task::DriverBlockingState::set(ContinueFuture inFuture, BlockingReason inReason) {
+  future = std::move(inFuture);
+  reason = inReason;
+}
+
+void Task::DriverBlockingState::clear() {
+  future = ContinueFuture{};
+  reason = BlockingReason::kNotBlocked;
+}
+
 Driver::Driver(
     std::vector<std::shared_ptr<Operator>> operators,
     std::shared_ptr<core::ExecCtx> execCtx)
     : operators_(std::move(operators)), execCtx_(std::move(execCtx)) {}
 
-BlockingReason Driver::run(std::vector<RowVectorPtr>& results, ContinueFuture* future) {
+BlockingReason Driver::run(
+    std::vector<RowVectorPtr>& results,
+    ContinueFuture* future,
+    bool stopAtFirstBatch) {
   size_t quantum = 0;
   while (true) {
     if (cancelCheck_ && cancelCheck_()) {
@@ -180,6 +223,9 @@ BlockingReason Driver::run(std::vector<RowVectorPtr>& results, ContinueFuture* f
     }
     if (pumped.produced) {
       results.push_back(std::move(pumped.batch));
+      if (stopAtFirstBatch) {
+        return BlockingReason::kNotBlocked;
+      }
       continue;
     }
     if (isFinished()) {
@@ -282,23 +328,84 @@ void Task::noMoreSplits(const core::PlanNodeId& planNodeId) {
   state->noMoreSplits();
 }
 
-std::vector<RowVectorPtr> Task::run() {
+void Task::start() {
   prepare();
+  VELOX_CHECK(mode_ == ExecutionMode::kParallel, "Task::start requires parallel execution mode");
+  std::lock_guard<std::mutex> lock(mutex_);
+  scheduleWorkers();
+  cv_.notify_all();
+}
 
-  const size_t workers = mode_ == ExecutionMode::kSerial
-      ? 1
-      : std::max<size_t>(1, std::min<size_t>(
-                               std::thread::hardware_concurrency() == 0 ? 4 : std::thread::hardware_concurrency(),
-                               drivers_.size()));
+bool Task::supportSerialExecutionMode() const {
+  return true;
+}
 
-  std::vector<std::thread> threads;
-  threads.reserve(workers > 0 ? workers - 1 : 0);
-  for (size_t i = 1; i < workers; ++i) {
-    threads.emplace_back([this]() { workerLoop(); });
+RowVectorPtr Task::next(ContinueFuture* future) {
+  prepare();
+  VELOX_CHECK(mode_ == ExecutionMode::kSerial, "Task::next requires serial execution mode");
+  VELOX_CHECK(supportSerialExecutionMode(), "Task does not support serial execution mode");
+
+  for (;;) {
+    int runnableDrivers = 0;
+    std::vector<ContinueFuture> blockedFutures;
+    for (size_t i = 0; i < drivers_.size(); ++i) {
+      auto& entry = drivers_[i];
+      if (entry.finished) {
+        continue;
+      }
+
+      ContinueFuture blockedFuture;
+      if (driverBlockingStates_[i].blocked(&blockedFuture)) {
+        blockedFutures.push_back(std::move(blockedFuture));
+        continue;
+      }
+      driverBlockingStates_[i].clear();
+      ++runnableDrivers;
+
+      std::vector<RowVectorPtr> localResults;
+      ContinueFuture driverFuture;
+      auto reason = entry.driver->run(localResults, &driverFuture, true);
+      if (!localResults.empty()) {
+        return localResults.front();
+      }
+      if (entry.driver->isFinished()) {
+        entry.finished = true;
+        ++finishedDrivers_;
+        continue;
+      }
+      if (reason == BlockingReason::kYield) {
+        continue;
+      }
+      if (reason == BlockingReason::kCancelled) {
+        throw std::runtime_error("Task cancelled");
+      }
+      if (driverFuture.valid()) {
+        driverBlockingStates_[i].set(driverFuture, reason);
+        blockedFutures.push_back(driverFuture);
+      }
+    }
+
+    if (allDriversFinishedLocked()) {
+      return nullptr;
+    }
+    if (runnableDrivers == 0) {
+      if (future != nullptr && !blockedFutures.empty()) {
+        *future = collectAnyContinueFutures(std::move(blockedFutures));
+        return nullptr;
+      }
+      VELOX_FAIL("Cannot make progress in serial mode: all drivers are blocked");
+    }
   }
-  workerLoop();
-  for (auto& thread : threads) {
-    thread.join();
+}
+
+std::vector<RowVectorPtr> Task::run() {
+  start();
+
+  {
+    std::unique_lock<std::mutex> lock(mutex_);
+    cv_.wait(lock, [&]() {
+      return failed_ || (allDriversFinishedLocked() && activeWorkers_ == 0);
+    });
   }
 
   if (exception_) {
@@ -370,6 +477,7 @@ void Task::instantiateDrivers() {
     }
     ++pipelineId;
   }
+  driverBlockingStates_.resize(drivers_.size());
 }
 
 std::shared_ptr<Driver> Task::makeDriver(
@@ -431,6 +539,10 @@ void Task::workerLoop() {
       cv_.wait(lock, [&]() { return failed_ || allDriversFinishedLocked() || !runnable_.empty(); });
 
       if (failed_ || allDriversFinishedLocked()) {
+        if (activeWorkers_ > 0) {
+          --activeWorkers_;
+        }
+        cv_.notify_all();
         return;
       }
 
@@ -457,6 +569,9 @@ void Task::workerLoop() {
       std::lock_guard<std::mutex> lock(mutex_);
       exception_ = std::current_exception();
       failed_ = true;
+      if (activeWorkers_ > 0) {
+        --activeWorkers_;
+      }
       cv_.notify_all();
       return;
     }
@@ -468,6 +583,7 @@ void Task::workerLoop() {
 
     auto& entry = drivers_[driverIndex];
     entry.running = false;
+    driverBlockingStates_[driverIndex].clear();
     if (entry.driver->isFinished()) {
       entry.finished = true;
       entry.blocked = false;
@@ -479,6 +595,7 @@ void Task::workerLoop() {
       failed_ = true;
     } else {
       entry.blocked = true;
+      driverBlockingStates_[driverIndex].set(future, reason);
       const auto blockedSequence = ++entry.blockedSequence;
       if (future.valid()) {
         auto self = shared_from_this();
@@ -508,6 +625,27 @@ void Task::enqueueDriverLocked(size_t driverIndex) {
   runnable_.push_back(driverIndex);
 }
 
+void Task::scheduleWorkers() {
+  if (workersScheduled_) {
+    return;
+  }
+  workersScheduled_ = true;
+
+  const size_t workers = mode_ == ExecutionMode::kSerial
+      ? 1
+      : std::max<size_t>(1, std::min<size_t>(
+                               std::thread::hardware_concurrency() == 0 ? 4 : std::thread::hardware_concurrency(),
+                               drivers_.size()));
+
+  activeWorkers_ = workers;
+  auto self = shared_from_this();
+  auto* executor = queryCtx_->executor();
+  VELOX_CHECK(executor != nullptr, "Task requires an executor to schedule workers");
+  for (size_t i = 0; i < workers; ++i) {
+    executor->add([self]() { self->workerLoop(); });
+  }
+}
+
 void Task::wakeSchedulers() {
   std::lock_guard<std::mutex> lock(mutex_);
   cv_.notify_all();
@@ -522,6 +660,7 @@ void Task::resumeDriverFromFuture(size_t driverIndex, uint64_t blockedSequence) 
   if (entry.finished || !entry.blocked || entry.blockedSequence != blockedSequence) {
     return;
   }
+  driverBlockingStates_[driverIndex].clear();
   entry.blocked = false;
   enqueueDriverLocked(driverIndex);
   cv_.notify_all();
