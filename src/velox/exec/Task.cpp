@@ -365,8 +365,8 @@ void Task::instantiateDrivers() {
         exchanges_.at(partition->exchangeId())->addProducer();
       }
 
-      drivers_.push_back(DriverEntry{makeDriver(*factory, driverId++, pipelineId), false, false});
-      runnable_.push_back(drivers_.size() - 1);
+      drivers_.push_back(DriverEntry{makeDriver(*factory, driverId++, pipelineId), false, false, false, false});
+      enqueueDriverLocked(drivers_.size() - 1);
     }
     ++pipelineId;
   }
@@ -439,6 +439,9 @@ void Task::workerLoop() {
       driverIndex = runnable_[pick];
       runnable_[pick] = runnable_.back();
       runnable_.pop_back();
+      auto& entry = drivers_[driverIndex];
+      entry.enqueued = false;
+      entry.running = true;
     }
 
     std::vector<RowVectorPtr> localResults;
@@ -464,12 +467,13 @@ void Task::workerLoop() {
     }
 
     auto& entry = drivers_[driverIndex];
+    entry.running = false;
     if (entry.driver->isFinished()) {
       entry.finished = true;
       entry.blocked = false;
       ++finishedDrivers_;
     } else if (reason == BlockingReason::kYield) {
-      runnable_.push_back(driverIndex);
+      enqueueDriverLocked(driverIndex);
     } else if (reason == BlockingReason::kCancelled) {
       exception_ = std::make_exception_ptr(std::runtime_error("Task cancelled"));
       failed_ = true;
@@ -478,14 +482,30 @@ void Task::workerLoop() {
       const auto blockedSequence = ++entry.blockedSequence;
       if (future.valid()) {
         auto self = shared_from_this();
-        std::thread([self, driverIndex, blockedSequence, future]() mutable {
+        auto* executor = queryCtx_->executor();
+        std::thread([self, driverIndex, blockedSequence, future, executor]() mutable {
           future.wait();
-          self->resumeDriverFromFuture(driverIndex, blockedSequence);
+          if (executor != nullptr) {
+            executor->add([self, driverIndex, blockedSequence]() {
+              self->resumeDriverFromFuture(driverIndex, blockedSequence);
+            });
+          } else {
+            self->resumeDriverFromFuture(driverIndex, blockedSequence);
+          }
         }).detach();
       }
     }
     cv_.notify_all();
   }
+}
+
+void Task::enqueueDriverLocked(size_t driverIndex) {
+  auto& entry = drivers_[driverIndex];
+  if (entry.finished || entry.running || entry.enqueued) {
+    return;
+  }
+  entry.enqueued = true;
+  runnable_.push_back(driverIndex);
 }
 
 void Task::wakeSchedulers() {
@@ -503,7 +523,7 @@ void Task::resumeDriverFromFuture(size_t driverIndex, uint64_t blockedSequence) 
     return;
   }
   entry.blocked = false;
-  runnable_.push_back(driverIndex);
+  enqueueDriverLocked(driverIndex);
   cv_.notify_all();
 }
 

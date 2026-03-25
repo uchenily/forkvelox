@@ -55,6 +55,8 @@ class Task : public std::enable_shared_from_this<Task> {
     std::shared_ptr<Driver> driver;
     bool finished{false};
     bool blocked{false};
+    bool enqueued{false};
+    bool running{false};
     uint64_t blockedSequence{0};
   };
 
@@ -69,6 +71,7 @@ class Task : public std::enable_shared_from_this<Task> {
       const core::PlanNodePtr& planNode,
       core::ExecCtx* execCtx);
   void workerLoop();
+  void enqueueDriverLocked(size_t driverIndex);
   void wakeSchedulers();
   void resumeDriverFromFuture(size_t driverIndex, uint64_t blockedSequence);
   bool allDriversFinishedLocked() const;
