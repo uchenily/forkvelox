@@ -112,43 +112,37 @@ int64_t parseDateKey(const std::string& text) {
 
 RowVectorPtr makeLineitem(memory::MemoryPool* pool, int scaleFactor) {
   VELOX_CHECK_EQ(scaleFactor, 1, "Only TPCH SF1 is supported right now");
-
-  const std::vector<std::string> paths = {
-      "thirdparties/tpch-kit/ref_data/1/lineitem.tbl.1",
-      "thirdparties/tpch-kit/ref_data/1/lineitem.tbl.19999",
-      "thirdparties/tpch-kit/ref_data/1/lineitem.tbl.39998",
-      "thirdparties/tpch-kit/ref_data/1/lineitem.tbl.59997",
-      "thirdparties/tpch-kit/ref_data/1/lineitem.tbl.60000",
-  };
+  const std::string path = std::string(VELOX_TPCH_SF1_DIR) + "/lineitem.tbl";
 
   std::vector<int64_t> quantities;
   std::vector<int64_t> discounts;
   std::vector<int64_t> shipdates;
   std::vector<int64_t> revenues;
 
-  for (const auto& path : paths) {
-    std::ifstream input(path);
-    VELOX_CHECK(input.good(), "Failed to open TPCH lineitem data at {}", path);
+  std::ifstream input(path);
+  VELOX_CHECK(
+      input.good(),
+      "Failed to open generated TPCH lineitem data at {}. Build target `TpchQ6` to generate SF1 data with dbgen.",
+      path);
 
-    std::string line;
-    while (std::getline(input, line)) {
-      if (line.empty()) {
-        continue;
-      }
-      auto columns = split(line, '|');
-      VELOX_CHECK_GE(columns.size(), 11, "Unexpected TPCH lineitem row format");
-
-      const int64_t quantity = std::stoll(columns[4]);
-      const int64_t extendedPriceCents = parseCents(columns[5]);
-      const int64_t discount = std::stoll(columns[6].substr(2));
-      const int64_t shipdate = parseDateKey(columns[10]);
-      const int64_t revenue = extendedPriceCents * discount;
-
-      quantities.push_back(quantity);
-      discounts.push_back(discount);
-      shipdates.push_back(shipdate);
-      revenues.push_back(revenue);
+  std::string line;
+  while (std::getline(input, line)) {
+    if (line.empty()) {
+      continue;
     }
+    auto columns = split(line, '|');
+    VELOX_CHECK_GE(columns.size(), 11, "Unexpected TPCH lineitem row format");
+
+    const int64_t quantity = std::stoll(columns[4]);
+    const int64_t extendedPriceCents = parseCents(columns[5]);
+    const int64_t discount = std::stoll(columns[6].substr(2));
+    const int64_t shipdate = parseDateKey(columns[10]);
+    const int64_t revenue = extendedPriceCents * discount;
+
+    quantities.push_back(quantity);
+    discounts.push_back(discount);
+    shipdates.push_back(shipdate);
+    revenues.push_back(revenue);
   }
 
   return std::make_shared<RowVector>(

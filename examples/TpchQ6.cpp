@@ -43,7 +43,7 @@ int main(int argc, char** argv) {
   auto revenue = std::dynamic_pointer_cast<SimpleVector<int64_t>>(result->childAt(0));
   VELOX_CHECK(revenue != nullptr, "TPC-H Q6 expected BIGINT revenue result");
 
-  constexpr int64_t kExpectedRevenueX10000 = 144924440;
+  constexpr int64_t kExpectedRevenueX10000 = 1231410782283;
   VELOX_CHECK_EQ(revenue->valueAt(0), kExpectedRevenueX10000);
 
   const auto whole = revenue->valueAt(0) / 10000;
