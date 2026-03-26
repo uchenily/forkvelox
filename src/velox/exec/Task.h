@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "velox/common/async/Async.h"
 #include "velox/core/QueryCtx.h"
 #include "velox/exec/Driver.h"
 #include "velox/exec/LocalPlanner.h"
@@ -47,7 +48,7 @@ class Task : public std::enable_shared_from_this<Task> {
 
   void start();
   bool supportSerialExecutionMode() const;
-  RowVectorPtr next(ContinueFuture* future = nullptr);
+  RowVectorPtr next(std::shared_ptr<async::AsyncEvent>* event = nullptr);
   std::vector<RowVectorPtr> run();
   const TaskStats& stats() const {
     return stats_;
@@ -55,11 +56,11 @@ class Task : public std::enable_shared_from_this<Task> {
 
  private:
   struct DriverBlockingState {
-    ContinueFuture future;
+    std::shared_ptr<async::AsyncEvent> event;
     BlockingReason reason{BlockingReason::kNotBlocked};
 
-    bool blocked(ContinueFuture* outFuture = nullptr) const;
-    void set(ContinueFuture inFuture, BlockingReason inReason);
+    bool blocked(std::shared_ptr<async::AsyncEvent>* outEvent = nullptr) const;
+    void set(std::shared_ptr<async::AsyncEvent> inEvent, BlockingReason inReason);
     void clear();
   };
 

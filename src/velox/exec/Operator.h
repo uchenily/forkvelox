@@ -1,5 +1,6 @@
 #pragma once
 #include "velox/common/base/Exceptions.h"
+#include "velox/common/async/Async.h"
 #include "velox/core/PlanNode.h"
 #include "velox/dwio/common/RowVectorFile.h"
 #include "velox/exec/BlockingReason.h"
@@ -23,7 +24,7 @@ namespace facebook::velox::exec {
 class SourceState {
 public:
   virtual ~SourceState() = default;
-  virtual BlockingReason isBlocked(ContinueFuture* future) = 0;
+  virtual BlockingReason isBlocked(std::shared_ptr<async::AsyncEvent>* event) = 0;
   virtual bool isFinished() const = 0;
   virtual RowVectorPtr next() = 0;
 };
@@ -39,7 +40,7 @@ public:
   virtual void noMoreInput() { noMoreInput_ = true; }
 
   virtual RowVectorPtr getOutput() = 0;
-  virtual BlockingReason isBlocked(ContinueFuture* future) { return BlockingReason::kNotBlocked; }
+  virtual BlockingReason isBlocked(std::shared_ptr<async::AsyncEvent>* event) { return BlockingReason::kNotBlocked; }
   virtual bool isFinished() = 0;
 
   core::PlanNodePtr planNode() const { return planNode_; }
@@ -55,14 +56,14 @@ public:
 
   void setOnStateChange(std::function<void()> onStateChange) { onStateChange_ = std::move(onStateChange); }
 
-  BlockingReason blockingReason(ContinueFuture* future) {
+  BlockingReason blockingReason(std::shared_ptr<async::AsyncEvent>* event) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (buildFinished_) {
       return BlockingReason::kNotBlocked;
     }
-    auto waiter = std::make_shared<ContinuePromise>();
-    if (future != nullptr) {
-      *future = waiter->get_future().share();
+    auto waiter = std::make_shared<async::AsyncEvent>();
+    if (event != nullptr) {
+      *event = waiter;
     }
     waiters_.push_back(waiter);
     return BlockingReason::kWaitForJoinBuild;
@@ -85,7 +86,7 @@ public:
   }
 
   void noMoreBuildInput() {
-    std::vector<std::shared_ptr<ContinuePromise>> waiters;
+    std::vector<std::shared_ptr<async::AsyncEvent>> waiters;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       buildFinished_ = true;
@@ -95,7 +96,7 @@ public:
       onStateChange_();
     }
     for (auto& waiter : waiters) {
-      waiter->set_value();
+      waiter->notify();
     }
   }
 
@@ -111,7 +112,7 @@ private:
   bool buildFinished_{false};
   mutable std::mutex mutex_;
   std::function<void()> onStateChange_;
-  std::vector<std::shared_ptr<ContinuePromise>> waiters_;
+  std::vector<std::shared_ptr<async::AsyncEvent>> waiters_;
 };
 
 class ValuesOperator : public Operator {
@@ -125,8 +126,8 @@ public:
   }
   void addInput(RowVectorPtr input) override {}
   void noMoreInput() override { noMoreInput_ = true; }
-  BlockingReason isBlocked(ContinueFuture* future) override {
-    return state_ ? state_->isBlocked(future) : BlockingReason::kNotBlocked;
+  BlockingReason isBlocked(std::shared_ptr<async::AsyncEvent>* event) override {
+    return state_ ? state_->isBlocked(event) : BlockingReason::kNotBlocked;
   }
   RowVectorPtr getOutput() override {
     if (state_) {
@@ -156,7 +157,7 @@ public:
       : Operator(node), queue_(std::move(queue)) {}
   bool needsInput() const override { return false; }
   void addInput(RowVectorPtr input) override {}
-  BlockingReason isBlocked(ContinueFuture* future) override { return queue_->blockingReason(future); }
+  BlockingReason isBlocked(std::shared_ptr<async::AsyncEvent>* event) override { return queue_->blockingReason(event); }
   RowVectorPtr getOutput() override {
     if (finished_) {
       return nullptr;
@@ -243,8 +244,8 @@ public:
   }
   bool needsInput() const override { return false; }
   void addInput(RowVectorPtr input) override {}
-  BlockingReason isBlocked(ContinueFuture* future) override {
-    return state_ ? state_->isBlocked(future) : BlockingReason::kNotBlocked;
+  BlockingReason isBlocked(std::shared_ptr<async::AsyncEvent>* event) override {
+    return state_ ? state_->isBlocked(event) : BlockingReason::kNotBlocked;
   }
   RowVectorPtr getOutput() override {
     if (produced_) {
@@ -967,8 +968,8 @@ public:
   HashProbeOperator(core::PlanNodePtr node, core::ExecCtx *ctx, std::shared_ptr<HashJoinBridge> bridge)
       : Operator(node), ctx_(ctx), bridge_(std::move(bridge)) {}
   bool needsInput() const override { return !noMoreInput_; }
-  BlockingReason isBlocked(ContinueFuture* future) override {
-    return bridge_->blockingReason(future);
+  BlockingReason isBlocked(std::shared_ptr<async::AsyncEvent>* event) override {
+    return bridge_->blockingReason(event);
   }
   void addInput(RowVectorPtr input) override {
     if (!input || input->size() == 0 || !bridge_) {

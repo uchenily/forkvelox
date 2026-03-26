@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "velox/common/async/Async.h"
 #include "velox/core/ExecCtx.h"
 #include "velox/core/PlanNode.h"
 #include "velox/exec/BlockingReason.h"
@@ -31,7 +32,7 @@ class Driver {
 
   BlockingReason run(
       std::vector<RowVectorPtr>& results,
-      ContinueFuture* future = nullptr,
+      std::shared_ptr<async::AsyncEvent>* event = nullptr,
       bool stopAtFirstBatch = false);
   BlockingReason isBlocked();
   bool isFinished() const;
@@ -65,7 +66,7 @@ class Driver {
   std::function<bool()> cancelCheck_;
   Operator* lastBlockedOperator_{nullptr};
   BlockingReason lastBlockingReason_{BlockingReason::kNotBlocked};
-  ContinueFuture lastBlockingFuture_;
+  std::shared_ptr<async::AsyncEvent> lastBlockingEvent_;
 };
 
 } // namespace facebook::velox::exec

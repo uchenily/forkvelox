@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "velox/common/async/Async.h"
 #include "velox/exec/BlockingReason.h"
 #include "velox/vector/ComplexVector.h"
 
@@ -24,7 +25,7 @@ class LocalExchangeQueue : public std::enable_shared_from_this<LocalExchangeQueu
   void enqueue(RowVectorPtr batch);
   bool dequeue(RowVectorPtr& batch);
   void producerFinished();
-  BlockingReason blockingReason(ContinueFuture* future = nullptr);
+  BlockingReason blockingReason(std::shared_ptr<async::AsyncEvent>* event = nullptr);
 
   const std::string& id() const {
     return id_;
@@ -36,7 +37,7 @@ class LocalExchangeQueue : public std::enable_shared_from_this<LocalExchangeQueu
   std::string id_;
   mutable std::mutex mutex_;
   std::deque<RowVectorPtr> queue_;
-  std::vector<std::shared_ptr<ContinuePromise>> waiters_;
+  std::vector<std::shared_ptr<async::AsyncEvent>> waiters_;
   size_t producers_{0};
   size_t finishedProducers_{0};
   std::function<void()> onStateChange_;

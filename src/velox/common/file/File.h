@@ -14,9 +14,9 @@
 #include "folly/Executor.h"
 #include "folly/Range.h"
 #include "folly/container/F14Map.h"
-#include "folly/futures/Future.h"
 #include "folly/io/IOBuf.h"
 
+#include "velox/common/async/Async.h"
 #include "velox/common/base/Exceptions.h"
 #include "velox/common/file/Region.h"
 
@@ -43,10 +43,9 @@ public:
   virtual uint64_t preadv(folly::Range<const common::Region *> regions, folly::Range<folly::IOBuf *> iobufs,
                           const FileIoContext &context = FileIoContext()) const;
 
-  virtual folly::SemiFuture<uint64_t> preadvAsync(uint64_t offset, const std::vector<folly::Range<char *>> &buffers,
+  virtual async::AsyncValue<uint64_t> preadvAsync(uint64_t offset, const std::vector<folly::Range<char *>> &buffers,
                                                   const FileIoContext &context = FileIoContext()) const {
-    // Synchronous fallback
-    return folly::makeSemiFuture<uint64_t>(preadv(offset, buffers, context));
+    return async::AsyncValue<uint64_t>(preadv(offset, buffers, context));
   }
 
   virtual bool hasPreadvAsync() const { return false; }
@@ -159,7 +158,7 @@ public:
   uint64_t preadv(uint64_t offset, const std::vector<folly::Range<char *>> &buffers,
                   const FileIoContext &context = FileIoContext()) const final;
 
-  folly::SemiFuture<uint64_t> preadvAsync(uint64_t offset, const std::vector<folly::Range<char *>> &buffers,
+  async::AsyncValue<uint64_t> preadvAsync(uint64_t offset, const std::vector<folly::Range<char *>> &buffers,
                                           const FileIoContext &context = FileIoContext()) const override;
 
   bool hasPreadvAsync() const override { return true; }

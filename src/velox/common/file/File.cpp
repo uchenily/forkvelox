@@ -30,7 +30,7 @@ class IoUringReadExecutor {
     int fd{-1};
     off_t offset{0};
     std::vector<iovec> iovecs;
-    folly::Promise<uint64_t> promise;
+    async::AsyncValue<uint64_t> value;
   };
 
   IoUringReadExecutor() {
@@ -56,12 +56,11 @@ class IoUringReadExecutor {
     io_uring_queue_exit(&ring_);
   }
 
-  folly::SemiFuture<uint64_t> readv(int fd, uint64_t offset, const std::vector<folly::Range<char*>>& buffers) {
-    auto [promise, future] = folly::makePromiseContract<uint64_t>();
+  async::AsyncValue<uint64_t> readv(int fd, uint64_t offset, const std::vector<folly::Range<char*>>& buffers) {
     auto request = std::make_unique<Request>();
+    auto result = request->value;
     request->fd = fd;
     request->offset = static_cast<off_t>(offset);
-    request->promise = std::move(promise);
     request->iovecs.reserve(buffers.size());
     for (const auto& buffer : buffers) {
       request->iovecs.push_back(iovec{buffer.data(), buffer.size()});
@@ -82,7 +81,7 @@ class IoUringReadExecutor {
       const int rc = io_uring_submit(&ring_);
       VELOX_CHECK_GE(rc, 0, "io_uring_submit failed: {}", rc);
     }
-    return future;
+    return result;
   }
 
   static IoUringReadExecutor& instance() {
@@ -122,9 +121,9 @@ class IoUringReadExecutor {
         continue;
       }
       if (result < 0) {
-        owned->promise.setException(std::make_exception_ptr(std::runtime_error("io_uring readv failed")));
+        owned->value.setError(std::make_exception_ptr(std::runtime_error("io_uring readv failed")));
       } else {
-        owned->promise.setValue(static_cast<uint64_t>(result));
+        owned->value.setValue(static_cast<uint64_t>(result));
       }
     }
   }
@@ -248,7 +247,7 @@ uint64_t LocalReadFile::preadv(uint64_t offset, const std::vector<folly::Range<c
   return total;
 }
 
-folly::SemiFuture<uint64_t> LocalReadFile::preadvAsync(uint64_t offset,
+async::AsyncValue<uint64_t> LocalReadFile::preadvAsync(uint64_t offset,
                                                        const std::vector<folly::Range<char *>> &buffers,
                                                        const FileIoContext &context) const {
   return IoUringReadExecutor::instance().readv(fd_, offset, buffers);

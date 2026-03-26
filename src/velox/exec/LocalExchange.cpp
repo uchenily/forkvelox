@@ -14,14 +14,14 @@ void LocalExchangeQueue::enqueue(RowVectorPtr batch) {
   if (!batch) {
     return;
   }
-  std::vector<std::shared_ptr<ContinuePromise>> waiters;
+  std::vector<std::shared_ptr<async::AsyncEvent>> waiters;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     queue_.push_back(std::move(batch));
     waiters.swap(waiters_);
   }
   for (auto& waiter : waiters) {
-    waiter->set_value();
+    waiter->notify();
   }
   notify();
 }
@@ -38,26 +38,26 @@ bool LocalExchangeQueue::dequeue(RowVectorPtr& batch) {
 }
 
 void LocalExchangeQueue::producerFinished() {
-  std::vector<std::shared_ptr<ContinuePromise>> waiters;
+  std::vector<std::shared_ptr<async::AsyncEvent>> waiters;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     ++finishedProducers_;
     waiters.swap(waiters_);
   }
   for (auto& waiter : waiters) {
-    waiter->set_value();
+    waiter->notify();
   }
   notify();
 }
 
-BlockingReason LocalExchangeQueue::blockingReason(ContinueFuture* future) {
+BlockingReason LocalExchangeQueue::blockingReason(std::shared_ptr<async::AsyncEvent>* event) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!queue_.empty() || finishedProducers_ >= producers_) {
     return BlockingReason::kNotBlocked;
   }
-  if (future != nullptr) {
-    auto waiter = std::make_shared<ContinuePromise>();
-    *future = waiter->get_future().share();
+  if (event != nullptr) {
+    auto waiter = std::make_shared<async::AsyncEvent>();
+    *event = waiter;
     waiters_.push_back(waiter);
   }
   return BlockingReason::kWaitForProducer;

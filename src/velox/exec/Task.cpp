@@ -16,7 +16,7 @@ class SharedValuesSourceState final : public SourceState {
  public:
   explicit SharedValuesSourceState(std::vector<RowVectorPtr> values) : values_(std::move(values)) {}
 
-  BlockingReason isBlocked(ContinueFuture* future) override {
+  BlockingReason isBlocked(std::shared_ptr<async::AsyncEvent>* event) override {
     return BlockingReason::kNotBlocked;
   }
 
@@ -44,39 +44,39 @@ class SharedSplitSourceState final : public SourceState {
   explicit SharedSplitSourceState(std::function<void()> onStateChange) : onStateChange_(std::move(onStateChange)) {}
 
   void addSplit(Split split) {
-    std::vector<std::shared_ptr<ContinuePromise>> waiters;
+    std::vector<std::shared_ptr<async::AsyncEvent>> waiters;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       splits_.push_back(std::move(split));
       waiters.swap(waiters_);
     }
     for (auto& waiter : waiters) {
-      waiter->set_value();
+      waiter->notify();
     }
     notify();
   }
 
   void noMoreSplits() {
-    std::vector<std::shared_ptr<ContinuePromise>> waiters;
+    std::vector<std::shared_ptr<async::AsyncEvent>> waiters;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       noMoreSplits_ = true;
       waiters.swap(waiters_);
     }
     for (auto& waiter : waiters) {
-      waiter->set_value();
+      waiter->notify();
     }
     notify();
   }
 
-  BlockingReason isBlocked(ContinueFuture* future) override {
+  BlockingReason isBlocked(std::shared_ptr<async::AsyncEvent>* event) override {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!splits_.empty() || noMoreSplits_) {
       return BlockingReason::kNotBlocked;
     }
-    if (future != nullptr) {
-      auto waiter = std::make_shared<ContinuePromise>();
-      *future = waiter->get_future().share();
+    if (event != nullptr) {
+      auto waiter = std::make_shared<async::AsyncEvent>();
+      *event = waiter;
       waiters_.push_back(waiter);
     }
     return BlockingReason::kWaitForSplit;
@@ -116,7 +116,7 @@ class SharedSplitSourceState final : public SourceState {
   bool noMoreSplits_{false};
   memory::MemoryPool* pool_{nullptr};
   std::function<void()> onStateChange_;
-  std::vector<std::shared_ptr<ContinuePromise>> waiters_;
+  std::vector<std::shared_ptr<async::AsyncEvent>> waiters_;
 };
 
 void collectJoinBridges(
@@ -133,19 +133,18 @@ void collectJoinBridges(
   }
 }
 
-ContinueFuture collectAnyContinueFutures(std::vector<ContinueFuture> futures) {
-  auto promise = std::make_shared<ContinuePromise>();
-  auto anyFuture = promise->get_future().share();
+std::shared_ptr<async::AsyncEvent> collectAnyEvents(std::vector<std::shared_ptr<async::AsyncEvent>> events) {
+  auto anyEvent = std::make_shared<async::AsyncEvent>();
   auto done = std::make_shared<std::atomic<bool>>(false);
-  for (auto& future : futures) {
-    future.subscribe([promise, done]() mutable {
+  for (const auto& event : events) {
+    event->subscribe([anyEvent, done]() mutable {
       bool expected = false;
       if (done->compare_exchange_strong(expected, true)) {
-        promise->set_value();
+        anyEvent->notify();
       }
     });
   }
-  return anyFuture;
+  return anyEvent;
 }
 
 } // namespace
@@ -168,26 +167,26 @@ const char* blockingReasonName(BlockingReason reason) {
   return "Unknown";
 }
 
-bool Task::DriverBlockingState::blocked(ContinueFuture* outFuture) const {
-  if (!future.valid()) {
+bool Task::DriverBlockingState::blocked(std::shared_ptr<async::AsyncEvent>* outEvent) const {
+  if (!event) {
     return false;
   }
-  if (future.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+  if (event->isReady()) {
     return false;
   }
-  if (outFuture != nullptr) {
-    *outFuture = future;
+  if (outEvent != nullptr) {
+    *outEvent = event;
   }
   return true;
 }
 
-void Task::DriverBlockingState::set(ContinueFuture inFuture, BlockingReason inReason) {
-  future = std::move(inFuture);
+void Task::DriverBlockingState::set(std::shared_ptr<async::AsyncEvent> inEvent, BlockingReason inReason) {
+  event = std::move(inEvent);
   reason = inReason;
 }
 
 void Task::DriverBlockingState::clear() {
-  future = ContinueFuture{};
+  event.reset();
   reason = BlockingReason::kNotBlocked;
 }
 
@@ -198,7 +197,7 @@ Driver::Driver(
 
 BlockingReason Driver::run(
     std::vector<RowVectorPtr>& results,
-    ContinueFuture* future,
+    std::shared_ptr<async::AsyncEvent>* event,
     bool stopAtFirstBatch) {
   size_t quantum = 0;
   while (true) {
@@ -214,8 +213,8 @@ BlockingReason Driver::run(
 
     auto pumped = pump(operators_.size() - 1);
     if (pumped.reason != BlockingReason::kNotBlocked) {
-      if (future != nullptr) {
-        *future = lastBlockingFuture_;
+      if (event != nullptr) {
+        *event = lastBlockingEvent_;
       }
       return pumped.reason;
     }
@@ -239,9 +238,9 @@ BlockingReason Driver::isBlocked() {
   if (!lastBlockedOperator_) {
     return BlockingReason::kNotBlocked;
   }
-  ContinueFuture future;
-  lastBlockingReason_ = lastBlockedOperator_->isBlocked(&future);
-  lastBlockingFuture_ = future;
+  std::shared_ptr<async::AsyncEvent> event;
+  lastBlockingReason_ = lastBlockedOperator_->isBlocked(&event);
+  lastBlockingEvent_ = std::move(event);
   if (lastBlockingReason_ == BlockingReason::kNotBlocked) {
     lastBlockedOperator_ = nullptr;
   }
@@ -255,12 +254,12 @@ bool Driver::isFinished() const {
 Driver::PumpResult Driver::pump(size_t operatorIndex) {
   auto& op = operators_[operatorIndex];
 
-  ContinueFuture future;
-  auto reason = op->isBlocked(&future);
+  std::shared_ptr<async::AsyncEvent> event;
+  auto reason = op->isBlocked(&event);
   if (reason != BlockingReason::kNotBlocked) {
     lastBlockedOperator_ = op.get();
     lastBlockingReason_ = reason;
-    lastBlockingFuture_ = future;
+    lastBlockingEvent_ = std::move(event);
     return PumpResult{false, false, false, nullptr, reason};
   }
 
@@ -337,31 +336,31 @@ bool Task::supportSerialExecutionMode() const {
   return true;
 }
 
-RowVectorPtr Task::next(ContinueFuture* future) {
+RowVectorPtr Task::next(std::shared_ptr<async::AsyncEvent>* event) {
   prepare();
   VELOX_CHECK(mode_ == ExecutionMode::kSerial, "Task::next requires serial execution mode");
   VELOX_CHECK(supportSerialExecutionMode(), "Task does not support serial execution mode");
 
   for (;;) {
     int runnableDrivers = 0;
-    std::vector<ContinueFuture> blockedFutures;
+    std::vector<std::shared_ptr<async::AsyncEvent>> blockedEvents;
     for (size_t i = 0; i < drivers_.size(); ++i) {
       auto& entry = drivers_[i];
       if (entry.finished) {
         continue;
       }
 
-      ContinueFuture blockedFuture;
-      if (driverBlockingStates_[i].blocked(&blockedFuture)) {
-        blockedFutures.push_back(std::move(blockedFuture));
+      std::shared_ptr<async::AsyncEvent> blockedEvent;
+      if (driverBlockingStates_[i].blocked(&blockedEvent)) {
+        blockedEvents.push_back(std::move(blockedEvent));
         continue;
       }
       driverBlockingStates_[i].clear();
       ++runnableDrivers;
 
       std::vector<RowVectorPtr> localResults;
-      ContinueFuture driverFuture;
-      auto reason = entry.driver->run(localResults, &driverFuture, true);
+      std::shared_ptr<async::AsyncEvent> driverEvent;
+      auto reason = entry.driver->run(localResults, &driverEvent, true);
       if (!localResults.empty()) {
         return localResults.front();
       }
@@ -376,9 +375,9 @@ RowVectorPtr Task::next(ContinueFuture* future) {
       if (reason == BlockingReason::kCancelled) {
         throw std::runtime_error("Task cancelled");
       }
-      if (driverFuture.valid()) {
-        driverBlockingStates_[i].set(driverFuture, reason);
-        blockedFutures.push_back(driverFuture);
+      if (driverEvent) {
+        driverBlockingStates_[i].set(driverEvent, reason);
+        blockedEvents.push_back(std::move(driverEvent));
       }
     }
 
@@ -386,8 +385,8 @@ RowVectorPtr Task::next(ContinueFuture* future) {
       return nullptr;
     }
     if (runnableDrivers == 0) {
-      if (future != nullptr && !blockedFutures.empty()) {
-        *future = collectAnyContinueFutures(std::move(blockedFutures));
+      if (event != nullptr && !blockedEvents.empty()) {
+        *event = collectAnyEvents(std::move(blockedEvents));
         return nullptr;
       }
       VELOX_FAIL("Cannot make progress in serial mode: all drivers are blocked");
@@ -555,13 +554,13 @@ void Task::workerLoop() {
 
     std::vector<RowVectorPtr> localResults;
     auto reason = BlockingReason::kNotBlocked;
-    ContinueFuture future;
+    std::shared_ptr<async::AsyncEvent> event;
     try {
       auto start = std::chrono::steady_clock::now();
       drivers_[driverIndex].driver->setYieldCheck([start]() {
         return std::chrono::steady_clock::now() - start > std::chrono::milliseconds(2);
       });
-      reason = drivers_[driverIndex].driver->run(localResults, &future);
+      reason = drivers_[driverIndex].driver->run(localResults, &event);
     } catch (...) {
       std::lock_guard<std::mutex> lock(mutex_);
       exception_ = std::current_exception();
@@ -592,12 +591,12 @@ void Task::workerLoop() {
       failed_ = true;
     } else {
       entry.blocked = true;
-      driverBlockingStates_[driverIndex].set(future, reason);
+      driverBlockingStates_[driverIndex].set(event, reason);
       const auto blockedSequence = ++entry.blockedSequence;
-      if (future.valid()) {
+      if (event) {
         auto self = shared_from_this();
         auto runtime = queryCtx_->runtime();
-        future.subscribe([self, runtime, driverIndex, blockedSequence]() mutable {
+        event->subscribe([self, runtime, driverIndex, blockedSequence]() mutable {
           runtime->launch([self, driverIndex, blockedSequence]() {
             self->resumeDriverFromFuture(driverIndex, blockedSequence);
           });
