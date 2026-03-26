@@ -113,7 +113,7 @@ int main(int argc, char **argv) {
 
   std::cout << singlePlan->toString(true, true) << '\n';
   std::cout << "Running single-step aggregation." << std::endl;
-  runTaskWithExpectedRows("agg_single", singlePlan, {"{21, 6, 3}"}, false);
+  runTaskWithExpectedRows("agg_single", singlePlan, {"{21, 6, 3.5}"}, false);
 
   const std::string exchangeId = "agg_exchange";
   auto partialFinalPlan =
@@ -127,7 +127,7 @@ int main(int argc, char **argv) {
 
   std::cout << partialFinalPlan->toString(true, true) << '\n';
   std::cout << "Running partial/final aggregation." << std::endl;
-  runTaskWithExpectedRows("agg_partial_final", partialFinalPlan, {"{21, 6, 3}"}, false);
+  runTaskWithExpectedRows("agg_partial_final", partialFinalPlan, {"{21, 6, 3.5}"}, false);
 
   const std::string exchangeId1 = "agg_exchange_1";
   const std::string exchangeId2 = "agg_exchange_2";
@@ -145,7 +145,7 @@ int main(int argc, char **argv) {
 
   std::cout << intermediatePlan->toString(true, true) << '\n';
   std::cout << "Running partial/intermediate/final aggregation." << std::endl;
-  runTaskWithExpectedRows("agg_intermediate", intermediatePlan, {"{21, 6, 3}"}, false);
+  runTaskWithExpectedRows("agg_intermediate", intermediatePlan, {"{21, 6, 3.5}"}, false);
 
   auto groupedBatch = makeKeyValueBatch(pool.get(), {1, 1, 2, 2, 3, 3}, {10, 20, 30, 40, 50, 60});
   std::vector<RowVectorPtr> groupedBatches{groupedBatch};

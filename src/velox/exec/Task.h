@@ -43,8 +43,8 @@ class Task : public std::enable_shared_from_this<Task> {
 
  private:
   struct DriverPendingState {
-    std::shared_ptr<async::AsyncEvent> event;
-    BlockingReason reason{BlockingReason::kNotBlocked};
+    std::shared_ptr<async::AsyncEvent> event_;
+    BlockingReason reason_{BlockingReason::kNotBlocked};
 
     bool pending(std::shared_ptr<async::AsyncEvent>* outEvent = nullptr) const;
     void set(std::shared_ptr<async::AsyncEvent> inEvent, BlockingReason inReason);
@@ -52,12 +52,12 @@ class Task : public std::enable_shared_from_this<Task> {
   };
 
   struct DriverEntry {
-    std::shared_ptr<Driver> driver;
-    bool finished{false};
-    bool pending{false};
-    bool enqueued{false};
-    bool running{false};
-    uint64_t pendingSequence{0};
+    std::shared_ptr<Driver> driver_;
+    bool finished_{false};
+    bool pending_{false};
+    bool enqueued_{false};
+    bool running_{false};
+    uint64_t pendingSequence_{0};
   };
 
   void prepare();

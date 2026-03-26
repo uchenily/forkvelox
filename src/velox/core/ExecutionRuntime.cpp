@@ -12,25 +12,25 @@ namespace facebook::velox::core {
 class ExecutionRuntime::Impl {
  public:
   explicit Impl(size_t threads)
-      : pool(threads == 0 ? std::max<size_t>(1, std::thread::hardware_concurrency()) : threads) {}
+      : pool_(threads == 0 ? std::max<size_t>(1, std::thread::hardware_concurrency()) : threads) {}
 
   void launch(std::function<void()> func) {
     auto work = stdexec::starts_on(
-        pool.get_scheduler(),
+        pool_.get_scheduler(),
         stdexec::just() | stdexec::then([fn = std::move(func)]() mutable { fn(); }));
-    scope.spawn(std::move(work));
+    scope_.spawn(std::move(work));
   }
 
   void join() {
-    if (joined.exchange(true)) {
+    if (joined_.exchange(true)) {
       return;
     }
-    stdexec::sync_wait(scope.on_empty());
+    stdexec::sync_wait(scope_.on_empty());
   }
 
-  exec::static_thread_pool pool;
-  exec::async_scope scope;
-  std::atomic<bool> joined{false};
+  exec::static_thread_pool pool_;
+  exec::async_scope scope_;
+  std::atomic<bool> joined_{false};
 };
 
 ExecutionRuntime::ExecutionRuntime(size_t threads) : impl_(std::make_unique<Impl>(threads)) {}

@@ -51,11 +51,11 @@ class Driver {
 
  private:
   struct PumpResult {
-    bool progress{false};
-    bool produced{false};
-    bool atEnd{false};
-    RowVectorPtr batch;
-    BlockingReason reason{BlockingReason::kNotBlocked};
+    bool progress_{false};
+    bool produced_{false};
+    bool atEnd_{false};
+    RowVectorPtr batch_;
+    BlockingReason reason_{BlockingReason::kNotBlocked};
   };
 
   PumpResult pump(size_t operatorIndex);

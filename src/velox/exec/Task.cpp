@@ -173,26 +173,26 @@ const char* blockingReasonName(BlockingReason reason) {
 }
 
 bool Task::DriverPendingState::pending(std::shared_ptr<async::AsyncEvent>* outEvent) const {
-  if (!event) {
+  if (!event_) {
     return false;
   }
-  if (event->isReady()) {
+  if (event_->isReady()) {
     return false;
   }
   if (outEvent != nullptr) {
-    *outEvent = event;
+    *outEvent = event_;
   }
   return true;
 }
 
 void Task::DriverPendingState::set(std::shared_ptr<async::AsyncEvent> inEvent, BlockingReason inReason) {
-  event = std::move(inEvent);
-  reason = inReason;
+  event_ = std::move(inEvent);
+  reason_ = inReason;
 }
 
 void Task::DriverPendingState::clear() {
-  event.reset();
-  reason = BlockingReason::kNotBlocked;
+  event_.reset();
+  reason_ = BlockingReason::kNotBlocked;
 }
 
 Driver::Driver(
@@ -217,14 +217,14 @@ BlockingReason Driver::run(
     }
 
     auto pumped = pump(operators_.size() - 1);
-    if (pumped.reason != BlockingReason::kNotBlocked) {
+    if (pumped.reason_ != BlockingReason::kNotBlocked) {
       if (event != nullptr) {
         *event = lastBlockingEvent_;
       }
-      return pumped.reason;
+      return pumped.reason_;
     }
-    if (pumped.produced) {
-      results.push_back(std::move(pumped.batch));
+    if (pumped.produced_) {
+      results.push_back(std::move(pumped.batch_));
       if (stopAtFirstBatch) {
         return BlockingReason::kNotBlocked;
       }
@@ -233,7 +233,7 @@ BlockingReason Driver::run(
     if (isFinished()) {
       return BlockingReason::kNotBlocked;
     }
-    if (!pumped.progress) {
+    if (!pumped.progress_) {
       return BlockingReason::kYield;
     }
   }
@@ -283,14 +283,14 @@ Driver::PumpResult Driver::pump(size_t operatorIndex) {
   }
 
   auto upstream = pump(operatorIndex - 1);
-  if (upstream.reason != BlockingReason::kNotBlocked) {
+  if (upstream.reason_ != BlockingReason::kNotBlocked) {
     return upstream;
   }
-  if (upstream.produced) {
-    op->addInput(std::move(upstream.batch));
+  if (upstream.produced_) {
+    op->addInput(std::move(upstream.batch_));
     return PumpResult{true, false, false, nullptr, BlockingReason::kNotBlocked};
   }
-  if (upstream.atEnd) {
+  if (upstream.atEnd_) {
     op->noMoreInput();
     return PumpResult{true, false, false, nullptr, BlockingReason::kNotBlocked};
   }
@@ -521,8 +521,8 @@ void Task::workerLoop() {
       runnable_[pick] = runnable_.back();
       runnable_.pop_back();
       auto& entry = drivers_[driverIndex];
-      entry.enqueued = false;
-      entry.running = true;
+      entry.enqueued_ = false;
+      entry.running_ = true;
     }
 
     std::vector<RowVectorPtr> localResults;
@@ -530,10 +530,10 @@ void Task::workerLoop() {
     std::shared_ptr<async::AsyncEvent> event;
     try {
       auto start = std::chrono::steady_clock::now();
-      drivers_[driverIndex].driver->setYieldCheck([start]() {
+      drivers_[driverIndex].driver_->setYieldCheck([start]() {
         return std::chrono::steady_clock::now() - start > std::chrono::milliseconds(2);
       });
-      reason = drivers_[driverIndex].driver->run(localResults, &event);
+      reason = drivers_[driverIndex].driver_->run(localResults, &event);
     } catch (...) {
       std::lock_guard<std::mutex> lock(mutex_);
       exception_ = std::current_exception();
@@ -552,11 +552,11 @@ void Task::workerLoop() {
       }
 
       auto& entry = drivers_[driverIndex];
-      entry.running = false;
+      entry.running_ = false;
       driverPendingStates_[driverIndex].clear();
-      if (entry.driver->isFinished()) {
-        entry.finished = true;
-        entry.pending = false;
+      if (entry.driver_->isFinished()) {
+        entry.finished_ = true;
+        entry.pending_ = false;
         ++finishedDrivers_;
       } else if (reason == BlockingReason::kYield) {
         enqueueDriverLocked(driverIndex);
@@ -564,9 +564,9 @@ void Task::workerLoop() {
         exception_ = std::make_exception_ptr(std::runtime_error("Task cancelled"));
         failed_ = true;
       } else {
-        entry.pending = true;
+        entry.pending_ = true;
         driverPendingStates_[driverIndex].set(event, reason);
-        pendingSequenceToSubscribe = ++entry.pendingSequence;
+        pendingSequenceToSubscribe = ++entry.pendingSequence_;
         if (event) {
           pendingEventToSubscribe = event;
         }
@@ -585,10 +585,10 @@ void Task::workerLoop() {
 
 void Task::enqueueDriverLocked(size_t driverIndex) {
   auto& entry = drivers_[driverIndex];
-  if (entry.finished || entry.running || entry.enqueued) {
+  if (entry.finished_ || entry.running_ || entry.enqueued_) {
     return;
   }
-  entry.enqueued = true;
+  entry.enqueued_ = true;
   runnable_.push_back(driverIndex);
 }
 
@@ -620,11 +620,11 @@ void Task::resumePendingDriver(size_t driverIndex, uint64_t pendingSequence) {
     return;
   }
   auto& entry = drivers_[driverIndex];
-  if (entry.finished || !entry.pending || entry.pendingSequence != pendingSequence) {
+  if (entry.finished_ || !entry.pending_ || entry.pendingSequence_ != pendingSequence) {
     return;
   }
   driverPendingStates_[driverIndex].clear();
-  entry.pending = false;
+  entry.pending_ = false;
   enqueueDriverLocked(driverIndex);
   cv_.notify_all();
 }
