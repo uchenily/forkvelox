@@ -162,7 +162,7 @@ public:
   folly::SemiFuture<uint64_t> preadvAsync(uint64_t offset, const std::vector<folly::Range<char *>> &buffers,
                                           const FileIoContext &context = FileIoContext()) const override;
 
-  bool hasPreadvAsync() const override { return executor_ != nullptr; }
+  bool hasPreadvAsync() const override { return true; }
 
   uint64_t memoryUsage() const final;
 

@@ -1,10 +1,13 @@
 #include "velox/common/file/File.h"
 #include "velox/common/file/FileSystems.h"
+#include <liburing.h>
 #include <algorithm>
 #include <cstring>
 #include <fcntl.h>
+#include <mutex>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <thread>
 #include <unistd.h>
 
 #define FOLLY_ALWAYS_INLINE inline
@@ -20,6 +23,118 @@ T getAttribute(const std::unordered_map<std::string, std::string> &attributes, c
 }
 
 FOLLY_ALWAYS_INLINE void checkNotClosed(bool closed) { VELOX_CHECK(!closed, "file is closed"); }
+
+class IoUringReadExecutor {
+ public:
+  struct Request {
+    int fd{-1};
+    off_t offset{0};
+    std::vector<iovec> iovecs;
+    folly::Promise<uint64_t> promise;
+  };
+
+  IoUringReadExecutor() {
+    const int rc = io_uring_queue_init(256, &ring_, 0);
+    VELOX_CHECK_EQ(rc, 0, "Failed to initialize io_uring: {}", rc);
+    worker_ = std::thread([this]() { run(); });
+  }
+
+  ~IoUringReadExecutor() {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      stopping_ = true;
+      auto* sqe = io_uring_get_sqe(&ring_);
+      if (sqe != nullptr) {
+        io_uring_prep_nop(sqe);
+        io_uring_sqe_set_data(sqe, nullptr);
+        io_uring_submit(&ring_);
+      }
+    }
+    if (worker_.joinable()) {
+      worker_.join();
+    }
+    io_uring_queue_exit(&ring_);
+  }
+
+  folly::SemiFuture<uint64_t> readv(int fd, uint64_t offset, const std::vector<folly::Range<char*>>& buffers) {
+    auto [promise, future] = folly::makePromiseContract<uint64_t>();
+    auto request = std::make_unique<Request>();
+    request->fd = fd;
+    request->offset = static_cast<off_t>(offset);
+    request->promise = std::move(promise);
+    request->iovecs.reserve(buffers.size());
+    for (const auto& buffer : buffers) {
+      request->iovecs.push_back(iovec{buffer.data(), buffer.size()});
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      auto* sqe = io_uring_get_sqe(&ring_);
+      VELOX_CHECK_NOT_NULL(sqe, "io_uring submission queue is full");
+      io_uring_prep_readv(
+          sqe,
+          request->fd,
+          request->iovecs.data(),
+          static_cast<unsigned>(request->iovecs.size()),
+          request->offset);
+      io_uring_sqe_set_data(sqe, request.get());
+      requests_.push_back(std::move(request));
+      const int rc = io_uring_submit(&ring_);
+      VELOX_CHECK_GE(rc, 0, "io_uring_submit failed: {}", rc);
+    }
+    return future;
+  }
+
+  static IoUringReadExecutor& instance() {
+    static IoUringReadExecutor executor;
+    return executor;
+  }
+
+ private:
+  void run() {
+    while (true) {
+      io_uring_cqe* cqe = nullptr;
+      const int rc = io_uring_wait_cqe(&ring_, &cqe);
+      if (rc < 0) {
+        continue;
+      }
+      Request* request = static_cast<Request*>(io_uring_cqe_get_data(cqe));
+      const int result = cqe->res;
+      io_uring_cqe_seen(&ring_, cqe);
+
+      std::unique_ptr<Request> owned;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (request != nullptr) {
+          auto it = std::find_if(requests_.begin(), requests_.end(), [&](const auto& candidate) {
+            return candidate.get() == request;
+          });
+          if (it != requests_.end()) {
+            owned = std::move(*it);
+            requests_.erase(it);
+          }
+        }
+        if (stopping_ && requests_.empty() && request == nullptr) {
+          break;
+        }
+      }
+      if (!owned) {
+        continue;
+      }
+      if (result < 0) {
+        owned->promise.setException(std::make_exception_ptr(std::runtime_error("io_uring readv failed")));
+      } else {
+        owned->promise.setValue(static_cast<uint64_t>(result));
+      }
+    }
+  }
+
+  mutable std::mutex mutex_;
+  io_uring ring_{};
+  std::thread worker_;
+  bool stopping_{false};
+  std::vector<std::unique_ptr<Request>> requests_;
+};
 } // namespace
 
 std::string ReadFile::pread(uint64_t offset, uint64_t length, const FileIoContext &context) const {
@@ -136,8 +251,7 @@ uint64_t LocalReadFile::preadv(uint64_t offset, const std::vector<folly::Range<c
 folly::SemiFuture<uint64_t> LocalReadFile::preadvAsync(uint64_t offset,
                                                        const std::vector<folly::Range<char *>> &buffers,
                                                        const FileIoContext &context) const {
-  // Simplified sync fallback
-  return ReadFile::preadvAsync(offset, buffers, context);
+  return IoUringReadExecutor::instance().readv(fd_, offset, buffers);
 }
 
 uint64_t LocalReadFile::size() const { return size_; }

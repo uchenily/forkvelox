@@ -1,6 +1,6 @@
 #pragma once
-#include "folly/Executor.h"
 #include "velox/common/memory/Memory.h"
+#include "velox/core/ExecutionRuntime.h"
 #include "velox/core/QueryConfig.h"
 #include <algorithm>
 #include <memory>
@@ -12,24 +12,22 @@ namespace facebook::velox::core {
 
 class QueryCtx : public std::enable_shared_from_this<QueryCtx> {
 public:
-  static std::shared_ptr<QueryCtx> create(folly::Executor *executor = nullptr) {
-    return std::make_shared<QueryCtx>(executor);
+  static std::shared_ptr<QueryCtx> create(std::shared_ptr<ExecutionRuntime> runtime = nullptr) {
+    return std::make_shared<QueryCtx>(std::move(runtime));
   }
 
-  QueryCtx(folly::Executor *executor = nullptr) : executor_(executor) {
+  explicit QueryCtx(std::shared_ptr<ExecutionRuntime> runtime = nullptr) : runtime_(std::move(runtime)) {
     pool_ = memory::MemoryManager::getInstance()->addLeafPool("query_pool");
-    if (executor_ == nullptr) {
-      ownedExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(std::max(1u, std::thread::hardware_concurrency()));
-      executor_ = ownedExecutor_.get();
+    if (!runtime_) {
+      runtime_ = std::make_shared<ExecutionRuntime>(std::max(1u, std::thread::hardware_concurrency()));
     }
   }
 
   memory::MemoryPool *pool() { return pool_.get(); }
-  folly::Executor *executor() const { return executor_; }
+  std::shared_ptr<ExecutionRuntime> runtime() const { return runtime_; }
 
 private:
-  folly::Executor *executor_;
-  std::shared_ptr<folly::Executor> ownedExecutor_;
+  std::shared_ptr<ExecutionRuntime> runtime_;
   std::shared_ptr<memory::MemoryPool> pool_;
 };
 

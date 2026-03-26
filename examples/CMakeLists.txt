@@ -11,6 +11,7 @@ add_library(velox_dynamic_example SHARED
   "${CMAKE_CURRENT_SOURCE_DIR}/dynamic/DynamicFunction.cpp"
 )
 target_include_directories(velox_dynamic_example PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(velox_dynamic_example PRIVATE velox_common)
 
 foreach(source_file IN LISTS example_sources)
   get_filename_component(target_name "${source_file}" NAME_WE)

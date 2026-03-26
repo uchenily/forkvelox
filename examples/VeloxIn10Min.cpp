@@ -11,7 +11,6 @@
 #include "velox/tpch/gen/TpchGen.h"
 #include "velox/vector/tests/utils/VectorTestBase.h"
 #include <folly/init/Init.h>
-#include <folly/system/HardwareConcurrency.h>
 
 using namespace facebook::velox;
 using namespace facebook::velox::test;
@@ -71,9 +70,8 @@ public:
   /// Run the demo.
   void run();
 
-  std::shared_ptr<folly::Executor> executor_{
-      std::make_shared<folly::CPUThreadPoolExecutor>(folly::hardware_concurrency())};
-  std::shared_ptr<core::QueryCtx> queryCtx_{core::QueryCtx::create(executor_.get())};
+  std::shared_ptr<core::ExecutionRuntime> runtime_{std::make_shared<core::ExecutionRuntime>()};
+  std::shared_ptr<core::QueryCtx> queryCtx_{core::QueryCtx::create(runtime_)};
   // Note: VectorTestBase initializes execCtx_, but here we override or use it.
   // VectorTestBase uses queryCtx_ from itself.
   // The demo defines its own execCtx_ which shadows VectorTestBase's?

@@ -4,7 +4,6 @@
 #include <chrono>
 #include <deque>
 #include <stdexcept>
-#include <thread>
 
 #include "velox/common/base/Exceptions.h"
 #include "velox/dwio/common/RowVectorFile.h"
@@ -139,13 +138,12 @@ ContinueFuture collectAnyContinueFutures(std::vector<ContinueFuture> futures) {
   auto anyFuture = promise->get_future().share();
   auto done = std::make_shared<std::atomic<bool>>(false);
   for (auto& future : futures) {
-    std::thread([promise, done, future]() mutable {
-      future.wait();
+    future.subscribe([promise, done]() mutable {
       bool expected = false;
       if (done->compare_exchange_strong(expected, true)) {
         promise->set_value();
       }
-    }).detach();
+    });
   }
   return anyFuture;
 }
@@ -333,7 +331,6 @@ void Task::start() {
   VELOX_CHECK(mode_ == ExecutionMode::kParallel, "Task::start requires parallel execution mode");
   std::lock_guard<std::mutex> lock(mutex_);
   scheduleWorkers();
-  cv_.notify_all();
 }
 
 bool Task::supportSerialExecutionMode() const {
@@ -599,17 +596,12 @@ void Task::workerLoop() {
       const auto blockedSequence = ++entry.blockedSequence;
       if (future.valid()) {
         auto self = shared_from_this();
-        auto* executor = queryCtx_->executor();
-        std::thread([self, driverIndex, blockedSequence, future, executor]() mutable {
-          future.wait();
-          if (executor != nullptr) {
-            executor->add([self, driverIndex, blockedSequence]() {
-              self->resumeDriverFromFuture(driverIndex, blockedSequence);
-            });
-          } else {
+        auto runtime = queryCtx_->runtime();
+        future.subscribe([self, runtime, driverIndex, blockedSequence]() mutable {
+          runtime->launch([self, driverIndex, blockedSequence]() {
             self->resumeDriverFromFuture(driverIndex, blockedSequence);
-          }
-        }).detach();
+          });
+        });
       }
     }
     cv_.notify_all();
@@ -639,10 +631,10 @@ void Task::scheduleWorkers() {
 
   activeWorkers_ = workers;
   auto self = shared_from_this();
-  auto* executor = queryCtx_->executor();
-  VELOX_CHECK(executor != nullptr, "Task requires an executor to schedule workers");
+  auto runtime = queryCtx_->runtime();
+  VELOX_CHECK(runtime != nullptr, "Task requires an execution runtime");
   for (size_t i = 0; i < workers; ++i) {
-    executor->add([self]() { self->workerLoop(); });
+    runtime->launch([self]() { self->workerLoop(); });
   }
 }
 
