@@ -8,27 +8,43 @@ namespace facebook::velox::functions {
 
 using namespace facebook::velox::exec;
 
+namespace {
+
+double readNumeric(const VectorPtr& vec, vector_size_t row) {
+  switch (vec->type()->kind()) {
+    case TypeKind::BIGINT:
+      return std::dynamic_pointer_cast<SimpleVector<int64_t>>(vec)->valueAt(row);
+    case TypeKind::INTEGER:
+      return std::dynamic_pointer_cast<SimpleVector<int32_t>>(vec)->valueAt(row);
+    case TypeKind::DOUBLE:
+      return std::dynamic_pointer_cast<SimpleVector<double>>(vec)->valueAt(row);
+    default:
+      throw std::runtime_error("Unsupported numeric type");
+  }
+}
+
+template <typename Op>
+void applyComparison(
+    const SelectivityVector& rows,
+    std::vector<VectorPtr>& args,
+    EvalCtx& context,
+    VectorPtr& result,
+    Op op) {
+  auto flat =
+      std::make_shared<FlatVector<int32_t>>(context.pool(), INTEGER(), nullptr, rows.size(),
+                                            AlignedBuffer::allocate(rows.size() * sizeof(int32_t), context.pool()));
+  auto* raw = flat->mutableRawValues();
+  rows.applyToSelected([&](vector_size_t i) { raw[i] = op(readNumeric(args[0], i), readNumeric(args[1], i)); });
+  result = flat;
+}
+
+} // namespace
+
 class EqFunction : public VectorFunction {
 public:
   void apply(const SelectivityVector &rows, std::vector<VectorPtr> &args, const TypePtr &outputType, EvalCtx &context,
              VectorPtr &result) const override {
-    auto left = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[0]);
-    auto right = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[1]);
-
-    auto flat =
-        std::make_shared<FlatVector<int32_t>>(context.pool(), INTEGER(), nullptr, rows.size(),
-                                              AlignedBuffer::allocate(rows.size() * sizeof(int32_t), context.pool()));
-    auto *raw = flat->mutableRawValues();
-
-    if (left && right) {
-      rows.applyToSelected([&](vector_size_t i) { raw[i] = (left->valueAt(i) == right->valueAt(i)); });
-    } else {
-      // In a real engine, we'd support other types
-      // For now just implementing what was there
-      // Throwing generic exception or NYI if available
-      throw std::runtime_error("EqFunction only supports SimpleVector<int64> for now");
-    }
-    result = flat;
+    applyComparison(rows, args, context, result, [](double left, double right) { return left == right; });
   }
 };
 
@@ -36,20 +52,7 @@ class NeqFunction : public VectorFunction {
 public:
   void apply(const SelectivityVector &rows, std::vector<VectorPtr> &args, const TypePtr & /*outputType*/,
              EvalCtx &context, VectorPtr &result) const override {
-    auto left = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[0]);
-    auto right = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[1]);
-
-    auto flat =
-        std::make_shared<FlatVector<int32_t>>(context.pool(), INTEGER(), nullptr, rows.size(),
-                                              AlignedBuffer::allocate(rows.size() * sizeof(int32_t), context.pool()));
-    auto *raw = flat->mutableRawValues();
-
-    if (left && right) {
-      rows.applyToSelected([&](vector_size_t i) { raw[i] = (left->valueAt(i) != right->valueAt(i)); });
-    } else {
-      throw std::runtime_error("NeqFunction only supports SimpleVector<int64> for now");
-    }
-    result = flat;
+    applyComparison(rows, args, context, result, [](double left, double right) { return left != right; });
   }
 };
 
@@ -57,20 +60,7 @@ class LtFunction : public VectorFunction {
 public:
   void apply(const SelectivityVector &rows, std::vector<VectorPtr> &args, const TypePtr & /*outputType*/,
              EvalCtx &context, VectorPtr &result) const override {
-    auto left = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[0]);
-    auto right = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[1]);
-
-    auto flat =
-        std::make_shared<FlatVector<int32_t>>(context.pool(), INTEGER(), nullptr, rows.size(),
-                                              AlignedBuffer::allocate(rows.size() * sizeof(int32_t), context.pool()));
-    auto *raw = flat->mutableRawValues();
-
-    if (left && right) {
-      rows.applyToSelected([&](vector_size_t i) { raw[i] = (left->valueAt(i) < right->valueAt(i)); });
-    } else {
-      throw std::runtime_error("LtFunction only supports SimpleVector<int64> for now");
-    }
-    result = flat;
+    applyComparison(rows, args, context, result, [](double left, double right) { return left < right; });
   }
 };
 
@@ -78,20 +68,7 @@ class GtFunction : public VectorFunction {
 public:
   void apply(const SelectivityVector &rows, std::vector<VectorPtr> &args, const TypePtr & /*outputType*/,
              EvalCtx &context, VectorPtr &result) const override {
-    auto left = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[0]);
-    auto right = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[1]);
-
-    auto flat =
-        std::make_shared<FlatVector<int32_t>>(context.pool(), INTEGER(), nullptr, rows.size(),
-                                              AlignedBuffer::allocate(rows.size() * sizeof(int32_t), context.pool()));
-    auto *raw = flat->mutableRawValues();
-
-    if (left && right) {
-      rows.applyToSelected([&](vector_size_t i) { raw[i] = (left->valueAt(i) > right->valueAt(i)); });
-    } else {
-      throw std::runtime_error("GtFunction only supports SimpleVector<int64> for now");
-    }
-    result = flat;
+    applyComparison(rows, args, context, result, [](double left, double right) { return left > right; });
   }
 };
 
@@ -99,20 +76,7 @@ class LteFunction : public VectorFunction {
 public:
   void apply(const SelectivityVector &rows, std::vector<VectorPtr> &args, const TypePtr & /*outputType*/,
              EvalCtx &context, VectorPtr &result) const override {
-    auto left = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[0]);
-    auto right = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[1]);
-
-    auto flat =
-        std::make_shared<FlatVector<int32_t>>(context.pool(), INTEGER(), nullptr, rows.size(),
-                                              AlignedBuffer::allocate(rows.size() * sizeof(int32_t), context.pool()));
-    auto *raw = flat->mutableRawValues();
-
-    if (left && right) {
-      rows.applyToSelected([&](vector_size_t i) { raw[i] = (left->valueAt(i) <= right->valueAt(i)); });
-    } else {
-      throw std::runtime_error("LteFunction only supports SimpleVector<int64> for now");
-    }
-    result = flat;
+    applyComparison(rows, args, context, result, [](double left, double right) { return left <= right; });
   }
 };
 
@@ -120,20 +84,7 @@ class GteFunction : public VectorFunction {
 public:
   void apply(const SelectivityVector &rows, std::vector<VectorPtr> &args, const TypePtr & /*outputType*/,
              EvalCtx &context, VectorPtr &result) const override {
-    auto left = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[0]);
-    auto right = std::dynamic_pointer_cast<SimpleVector<int64_t>>(args[1]);
-
-    auto flat =
-        std::make_shared<FlatVector<int32_t>>(context.pool(), INTEGER(), nullptr, rows.size(),
-                                              AlignedBuffer::allocate(rows.size() * sizeof(int32_t), context.pool()));
-    auto *raw = flat->mutableRawValues();
-
-    if (left && right) {
-      rows.applyToSelected([&](vector_size_t i) { raw[i] = (left->valueAt(i) >= right->valueAt(i)); });
-    } else {
-      throw std::runtime_error("GteFunction only supports SimpleVector<int64> for now");
-    }
-    result = flat;
+    applyComparison(rows, args, context, result, [](double left, double right) { return left >= right; });
   }
 };
 

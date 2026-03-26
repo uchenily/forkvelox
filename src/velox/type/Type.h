@@ -66,6 +66,12 @@ public:
   std::string toString() const override { return "BIGINT"; }
 };
 
+class DoubleType : public Type {
+public:
+  DoubleType() : Type(TypeKind::DOUBLE) {}
+  std::string toString() const override { return "DOUBLE"; }
+};
+
 class VarcharType : public Type {
 public:
   VarcharType() : Type(TypeKind::VARCHAR) {}
@@ -183,6 +189,7 @@ using RowTypePtr = std::shared_ptr<const RowType>;
 
 inline std::shared_ptr<const Type> INTEGER() { return std::make_shared<IntegerType>(); }
 inline std::shared_ptr<const Type> BIGINT() { return std::make_shared<BigIntType>(); }
+inline std::shared_ptr<const Type> DOUBLE() { return std::make_shared<DoubleType>(); }
 inline std::shared_ptr<const Type> VARCHAR() { return std::make_shared<VarcharType>(); }
 inline std::shared_ptr<const Type> UNKNOWN() { return std::make_shared<UnknownType>(); }
 

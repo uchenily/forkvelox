@@ -7,7 +7,7 @@
 namespace facebook::velox::aggregate {
 
 struct AggregateAccumulator {
-  int64_t sum{0};
+  double sum{0};
   int64_t count{0};
 };
 
@@ -21,7 +21,11 @@ public:
   virtual void addIntermediate(const facebook::velox::RowVectorPtr &input, facebook::velox::vector_size_t row,
                                int valueIndex, int countIndex, AggregateAccumulator &acc) const = 0;
 
-  virtual int64_t finalize(const AggregateAccumulator &acc) const = 0;
+  virtual TypePtr resultType(const TypePtr& inputType) const = 0;
+
+  virtual Variant finalize(const AggregateAccumulator& acc, const TypePtr& resultType) const = 0;
+
+  virtual TypePtr partialSumType(const TypePtr& inputType) const { return resultType(inputType); }
 
   virtual bool usesSumAndCount() const { return false; }
 };

@@ -34,6 +34,12 @@ std::shared_ptr<FlatVector<int64_t>> makeIntVector(memory::MemoryPool* pool, con
   return std::make_shared<FlatVector<int64_t>>(pool, BIGINT(), nullptr, values.size(), buffer);
 }
 
+std::shared_ptr<FlatVector<double>> makeDoubleVector(memory::MemoryPool* pool, const std::vector<double>& values) {
+  auto buffer = AlignedBuffer::allocate(values.size() * sizeof(double), pool);
+  std::memcpy(buffer->asMutable<uint8_t>(), values.data(), values.size() * sizeof(double));
+  return std::make_shared<FlatVector<double>>(pool, DOUBLE(), nullptr, values.size(), buffer);
+}
+
 std::shared_ptr<FlatVector<StringView>> makeStringVector(memory::MemoryPool* pool, const std::vector<std::string>& values) {
   auto buffer = AlignedBuffer::allocate(values.size() * sizeof(StringView), pool);
   auto* rawValues = buffer->asMutable<StringView>();
@@ -100,6 +106,10 @@ int64_t parseCents(const std::string& text) {
   return whole * 100 + std::stoll(fraction);
 }
 
+double parseDouble(const std::string& text) {
+  return std::stod(text);
+}
+
 int64_t parseDateKey(const std::string& text) {
   std::string normalized;
   normalized.reserve(text.size());
@@ -115,10 +125,16 @@ RowVectorPtr makeLineitem(memory::MemoryPool* pool, int scaleFactor) {
   VELOX_CHECK_EQ(scaleFactor, 1, "Only TPCH SF1 is supported right now");
   const std::string path = std::string(VELOX_TPCH_SF1_DIR) + "/lineitem.tbl";
 
-  std::vector<int64_t> quantities;
-  std::vector<int64_t> discounts;
+  std::vector<double> quantities;
+  std::vector<double> extendedPrices;
+  std::vector<double> discounts;
+  std::vector<double> taxes;
+  std::vector<std::string> returnFlags;
+  std::vector<std::string> lineStatuses;
   std::vector<int64_t> shipdates;
-  std::vector<int64_t> revenues;
+  std::vector<double> revenues;
+  std::vector<double> discountedPrices;
+  std::vector<double> charges;
 
   std::ifstream input(path);
   VELOX_CHECK(
@@ -134,28 +150,53 @@ RowVectorPtr makeLineitem(memory::MemoryPool* pool, int scaleFactor) {
     auto columns = split(line, '|');
     VELOX_CHECK_GE(columns.size(), 11, "Unexpected TPCH lineitem row format");
 
-    const int64_t quantity = std::stoll(columns[4]);
-    const int64_t extendedPriceCents = parseCents(columns[5]);
-    const int64_t discount = std::stoll(columns[6].substr(2));
+    const double quantity = parseDouble(columns[4]);
+    const double extendedPrice = parseDouble(columns[5]);
+    const double discount = parseDouble(columns[6]);
+    const double tax = parseDouble(columns[7]);
     const int64_t shipdate = parseDateKey(columns[10]);
-    const int64_t revenue = extendedPriceCents * discount;
+    const double discountedPrice = extendedPrice * (1.0 - discount);
+    const double charge = discountedPrice * (1.0 + tax);
+    const double revenue = extendedPrice * discount;
 
     quantities.push_back(quantity);
+    extendedPrices.push_back(extendedPrice);
     discounts.push_back(discount);
+    taxes.push_back(tax);
+    returnFlags.push_back(columns[8]);
+    lineStatuses.push_back(columns[9]);
     shipdates.push_back(shipdate);
     revenues.push_back(revenue);
+    discountedPrices.push_back(discountedPrice);
+    charges.push_back(charge);
   }
 
   return std::make_shared<RowVector>(
       pool,
-      ROW({"l_quantity", "l_discount", "l_shipdate", "l_revenue"}, {BIGINT(), BIGINT(), BIGINT(), BIGINT()}),
+      ROW({"l_quantity",
+           "l_extendedprice",
+           "l_discount",
+           "l_tax",
+           "l_returnflag",
+           "l_linestatus",
+           "l_shipdate",
+           "l_revenue",
+           "l_disc_price",
+           "l_charge"},
+          {DOUBLE(), DOUBLE(), DOUBLE(), DOUBLE(), VARCHAR(), VARCHAR(), BIGINT(), DOUBLE(), DOUBLE(), DOUBLE()}),
       nullptr,
       quantities.size(),
       std::vector<VectorPtr>{
-          makeIntVector(pool, quantities),
-          makeIntVector(pool, discounts),
+          makeDoubleVector(pool, quantities),
+          makeDoubleVector(pool, extendedPrices),
+          makeDoubleVector(pool, discounts),
+          makeDoubleVector(pool, taxes),
+          makeStringVector(pool, returnFlags),
+          makeStringVector(pool, lineStatuses),
           makeIntVector(pool, shipdates),
-          makeIntVector(pool, revenues)});
+          makeDoubleVector(pool, revenues),
+          makeDoubleVector(pool, discountedPrices),
+          makeDoubleVector(pool, charges)});
 }
 
 RowVectorPtr makeLineitemSplit(memory::MemoryPool* pool, int scaleFactor, int part, int totalParts) {
@@ -184,10 +225,16 @@ RowVectorPtr makeLineitemSplit(memory::MemoryPool* pool, int scaleFactor, int pa
     }
   }
 
-  std::vector<int64_t> quantities;
-  std::vector<int64_t> discounts;
+  std::vector<double> quantities;
+  std::vector<double> extendedPrices;
+  std::vector<double> discounts;
+  std::vector<double> taxes;
+  std::vector<std::string> returnFlags;
+  std::vector<std::string> lineStatuses;
   std::vector<int64_t> shipdates;
-  std::vector<int64_t> revenues;
+  std::vector<double> revenues;
+  std::vector<double> discountedPrices;
+  std::vector<double> charges;
 
   std::string line;
   while (true) {
@@ -208,28 +255,53 @@ RowVectorPtr makeLineitemSplit(memory::MemoryPool* pool, int scaleFactor, int pa
     auto columns = split(line, '|');
     VELOX_CHECK_GE(columns.size(), 11, "Unexpected TPCH lineitem row format");
 
-    const int64_t quantity = std::stoll(columns[4]);
-    const int64_t extendedPriceCents = parseCents(columns[5]);
-    const int64_t discount = std::stoll(columns[6].substr(2));
+    const double quantity = parseDouble(columns[4]);
+    const double extendedPrice = parseDouble(columns[5]);
+    const double discount = parseDouble(columns[6]);
+    const double tax = parseDouble(columns[7]);
     const int64_t shipdate = parseDateKey(columns[10]);
-    const int64_t revenue = extendedPriceCents * discount;
+    const double discountedPrice = extendedPrice * (1.0 - discount);
+    const double charge = discountedPrice * (1.0 + tax);
+    const double revenue = extendedPrice * discount;
 
     quantities.push_back(quantity);
+    extendedPrices.push_back(extendedPrice);
     discounts.push_back(discount);
+    taxes.push_back(tax);
+    returnFlags.push_back(columns[8]);
+    lineStatuses.push_back(columns[9]);
     shipdates.push_back(shipdate);
     revenues.push_back(revenue);
+    discountedPrices.push_back(discountedPrice);
+    charges.push_back(charge);
   }
 
   return std::make_shared<RowVector>(
       pool,
-      ROW({"l_quantity", "l_discount", "l_shipdate", "l_revenue"}, {BIGINT(), BIGINT(), BIGINT(), BIGINT()}),
+      ROW({"l_quantity",
+           "l_extendedprice",
+           "l_discount",
+           "l_tax",
+           "l_returnflag",
+           "l_linestatus",
+           "l_shipdate",
+           "l_revenue",
+           "l_disc_price",
+           "l_charge"},
+          {DOUBLE(), DOUBLE(), DOUBLE(), DOUBLE(), VARCHAR(), VARCHAR(), BIGINT(), DOUBLE(), DOUBLE(), DOUBLE()}),
       nullptr,
       quantities.size(),
       std::vector<VectorPtr>{
-          makeIntVector(pool, quantities),
-          makeIntVector(pool, discounts),
+          makeDoubleVector(pool, quantities),
+          makeDoubleVector(pool, extendedPrices),
+          makeDoubleVector(pool, discounts),
+          makeDoubleVector(pool, taxes),
+          makeStringVector(pool, returnFlags),
+          makeStringVector(pool, lineStatuses),
           makeIntVector(pool, shipdates),
-          makeIntVector(pool, revenues)});
+          makeDoubleVector(pool, revenues),
+          makeDoubleVector(pool, discountedPrices),
+          makeDoubleVector(pool, charges)});
 }
 
 RowVectorPtr projectColumns(memory::MemoryPool* pool, const RowVectorPtr& data, const std::vector<std::string>& columns) {
@@ -268,7 +340,17 @@ RowTypePtr getTableSchema(Table table) {
     case TBL_REGION:
       return ROW({"r_regionkey", "r_name"}, {BIGINT(), VARCHAR()});
     case TBL_LINEITEM:
-      return ROW({"l_quantity", "l_discount", "l_shipdate", "l_revenue"}, {BIGINT(), BIGINT(), BIGINT(), BIGINT()});
+      return ROW({"l_quantity",
+                  "l_extendedprice",
+                  "l_discount",
+                  "l_tax",
+                  "l_returnflag",
+                  "l_linestatus",
+                  "l_shipdate",
+                  "l_revenue",
+                  "l_disc_price",
+                  "l_charge"},
+                 {DOUBLE(), DOUBLE(), DOUBLE(), DOUBLE(), VARCHAR(), VARCHAR(), BIGINT(), DOUBLE(), DOUBLE(), DOUBLE()});
   }
   VELOX_FAIL("Unknown TPCH table");
 }

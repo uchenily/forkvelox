@@ -33,6 +33,14 @@ std::shared_ptr<BaseVector> BaseVector::create(const std::shared_ptr<const Type>
     }
     return std::make_shared<FlatVector<int32_t>>(pool, type, nullptr, size, values);
   }
+  case TypeKind::DOUBLE: {
+    const auto bytes = size * static_cast<vector_size_t>(sizeof(double));
+    auto values = AlignedBuffer::allocate(bytes, pool);
+    if (bytes > 0) {
+      std::memset(values->as_mutable_uint8_t(), 0, bytes);
+    }
+    return std::make_shared<FlatVector<double>>(pool, type, nullptr, size, values);
+  }
   case TypeKind::VARCHAR: {
     const auto bytes = size * static_cast<vector_size_t>(sizeof(StringView));
     auto values = AlignedBuffer::allocate(bytes, pool);

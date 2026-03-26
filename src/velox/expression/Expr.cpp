@@ -66,6 +66,13 @@ public:
       auto *raw = flat->mutableRawValues();
       rows.applyToSelected([&](vector_size_t i) { raw[i] = (int32_t)v; });
       result = flat;
+    } else if (value_.kind() == TypeKind::DOUBLE) {
+      auto flat = std::make_shared<FlatVector<double>>(pool, DOUBLE(), nullptr, size,
+                                                       AlignedBuffer::allocate(size * sizeof(double), pool));
+      double v = value_.value<double>();
+      auto* raw = flat->mutableRawValues();
+      rows.applyToSelected([&](vector_size_t i) { raw[i] = v; });
+      result = flat;
     } else {
       VELOX_NYI("Constant type not supported in demo yet");
     }
@@ -77,6 +84,8 @@ private:
       return INTEGER();
     if (v.kind() == TypeKind::BIGINT)
       return BIGINT();
+    if (v.kind() == TypeKind::DOUBLE)
+      return DOUBLE();
     return BIGINT(); // Default
   }
   Variant value_;

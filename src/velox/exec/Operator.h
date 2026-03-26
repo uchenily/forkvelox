@@ -12,12 +12,53 @@
 #include "velox/vector/ComplexVector.h"
 #include "velox/vector/FlatVector.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <functional>
 #include <mutex>
 #include <unordered_map>
 
 namespace facebook::velox::exec {
+
+namespace detail {
+
+inline VectorPtr createFlatVectorForType(memory::MemoryPool* pool, const TypePtr& type, vector_size_t size) {
+  switch (type->kind()) {
+    case TypeKind::BIGINT:
+      return std::make_shared<FlatVector<int64_t>>(
+          pool, type, nullptr, size, AlignedBuffer::allocate(size * sizeof(int64_t), pool));
+    case TypeKind::INTEGER:
+      return std::make_shared<FlatVector<int32_t>>(
+          pool, type, nullptr, size, AlignedBuffer::allocate(size * sizeof(int32_t), pool));
+    case TypeKind::DOUBLE:
+      return std::make_shared<FlatVector<double>>(
+          pool, type, nullptr, size, AlignedBuffer::allocate(size * sizeof(double), pool));
+    case TypeKind::VARCHAR:
+      return std::make_shared<FlatVector<StringView>>(
+          pool, type, nullptr, size, AlignedBuffer::allocate(size * sizeof(StringView), pool));
+    default:
+      VELOX_FAIL("Unsupported type {}", type->toString());
+  }
+}
+
+inline void writeVariantToVector(const Variant& value, const VectorPtr& vector, vector_size_t row) {
+  switch (vector->type()->kind()) {
+    case TypeKind::BIGINT:
+      std::dynamic_pointer_cast<FlatVector<int64_t>>(vector)->mutableRawValues()[row] = value.value<int64_t>();
+      return;
+    case TypeKind::INTEGER:
+      std::dynamic_pointer_cast<FlatVector<int32_t>>(vector)->mutableRawValues()[row] =
+          static_cast<int32_t>(value.value<int64_t>());
+      return;
+    case TypeKind::DOUBLE:
+      std::dynamic_pointer_cast<FlatVector<double>>(vector)->mutableRawValues()[row] = value.value<double>();
+      return;
+    default:
+      VELOX_FAIL("Unsupported variant write type {}", vector->type()->toString());
+  }
+}
+
+} // namespace detail
 
 class SourceState {
 public:
@@ -357,12 +398,7 @@ public:
     for (size_t i = 0; i < rowType->size(); ++i) {
       auto type = rowType->childAt(i);
       VectorPtr col;
-      if (type->kind() == TypeKind::BIGINT)
-        col = std::make_shared<FlatVector<int64_t>>(pool, type, nullptr, totalRows,
-                                                    AlignedBuffer::allocate(totalRows * sizeof(int64_t), pool));
-      else
-        col = std::make_shared<FlatVector<StringView>>(pool, type, nullptr, totalRows,
-                                                       AlignedBuffer::allocate(totalRows * sizeof(StringView), pool));
+      col = detail::createFlatVectorForType(pool, type, totalRows);
       outCols.push_back(col);
     }
     auto result = std::make_shared<RowVector>(pool, rowType, nullptr, totalRows, outCols);
@@ -446,12 +482,7 @@ public:
     for (size_t i = 0; i < rowType->size(); ++i) {
       auto type = rowType->childAt(i);
       VectorPtr col;
-      if (type->kind() == TypeKind::BIGINT)
-        col = std::make_shared<FlatVector<int64_t>>(pool, type, nullptr, totalRows,
-                                                    AlignedBuffer::allocate(totalRows * sizeof(int64_t), pool));
-      else
-        col = std::make_shared<FlatVector<StringView>>(pool, type, nullptr, totalRows,
-                                                       AlignedBuffer::allocate(totalRows * sizeof(StringView), pool));
+      col = detail::createFlatVectorForType(pool, type, totalRows);
       outCols.push_back(col);
     }
     auto result = std::make_shared<RowVector>(pool, rowType, nullptr, totalRows, outCols);
@@ -503,6 +534,9 @@ public:
       if (type->kind() == TypeKind::BIGINT)
         newCol = std::make_shared<FlatVector<int64_t>>(
             pool, type, nullptr, selected.size(), AlignedBuffer::allocate(selected.size() * sizeof(int64_t), pool));
+      else if (type->kind() == TypeKind::DOUBLE)
+        newCol = std::make_shared<FlatVector<double>>(
+            pool, type, nullptr, selected.size(), AlignedBuffer::allocate(selected.size() * sizeof(double), pool));
       else if (type->kind() == TypeKind::VARCHAR)
         newCol = std::make_shared<FlatVector<StringView>>(
             pool, type, nullptr, selected.size(), AlignedBuffer::allocate(selected.size() * sizeof(StringView), pool));
@@ -540,6 +574,8 @@ public:
     std::string arg;
     std::string alias;
     std::shared_ptr<aggregate::AggregateFunction> function;
+    TypePtr inputType;
+    TypePtr resultType;
   };
   struct GroupKey {
     std::vector<Variant> values;
@@ -563,6 +599,8 @@ public:
       case TypeKind::BIGINT:
       case TypeKind::INTEGER:
         return a.value<int64_t>() == b.value<int64_t>();
+      case TypeKind::DOUBLE:
+        return a.value<double>() == b.value<double>();
       case TypeKind::VARCHAR:
         return a.value<std::string>() == b.value<std::string>();
       default:
@@ -586,6 +624,8 @@ public:
       case TypeKind::BIGINT:
       case TypeKind::INTEGER:
         return h ^ std::hash<int64_t>()(v.value<int64_t>());
+      case TypeKind::DOUBLE:
+        return h ^ std::hash<double>()(v.value<double>());
       case TypeKind::VARCHAR:
         return h ^ std::hash<std::string>()(v.value<std::string>());
       default:
@@ -700,12 +740,19 @@ public:
       for (const auto &info : aggs_) {
         if (info.func == "count" && info.arg == "1") {
           aggArgIndices_.push_back(-1);
+          if (!info.inputType) {
+            const_cast<AggregateInfo&>(info).inputType = BIGINT();
+            const_cast<AggregateInfo&>(info).resultType = info.function->resultType(BIGINT());
+          }
           continue;
         }
         bool found = false;
         for (int k = 0; k < rowType->size(); ++k) {
           if (rowType->nameOf(k) == info.arg) {
             aggArgIndices_.push_back(k);
+            auto& mutableInfo = const_cast<AggregateInfo&>(info);
+            mutableInfo.inputType = rowType->childAt(k);
+            mutableInfo.resultType = info.function->resultType(mutableInfo.inputType);
             found = true;
             break;
           }
@@ -762,18 +809,18 @@ public:
       for (const auto &info : aggs_) {
         if (info.function->usesSumAndCount()) {
           outNames.push_back(info.alias + "_sum");
-          outTypes.push_back(BIGINT());
+          outTypes.push_back(info.function->partialSumType(info.inputType));
           outNames.push_back(info.alias + "_count");
           outTypes.push_back(BIGINT());
         } else {
           outNames.push_back(info.alias);
-          outTypes.push_back(BIGINT());
+          outTypes.push_back(info.resultType);
         }
       }
     } else {
       for (const auto &info : aggs_) {
         outNames.push_back(info.alias);
-        outTypes.push_back(BIGINT());
+        outTypes.push_back(info.resultType);
       }
     }
     size_t numGroups = groups_.size();
@@ -796,6 +843,14 @@ public:
         int i = 0;
         for (auto &[key, group] : groups_) {
           col->mutableRawValues()[i++] = static_cast<int32_t>(group.keyValues[k].value<int64_t>());
+        }
+        outCols.push_back(col);
+      } else if (typeKind == TypeKind::DOUBLE) {
+        auto col = std::make_shared<FlatVector<double>>(pool, outTypes[k], nullptr, numGroups,
+                                                        AlignedBuffer::allocate(numGroups * sizeof(double), pool));
+        int i = 0;
+        for (auto &[key, group] : groups_) {
+          col->mutableRawValues()[i++] = group.keyValues[k].value<double>();
         }
         outCols.push_back(col);
       } else if (typeKind == TypeKind::VARCHAR) {
@@ -825,18 +880,17 @@ public:
       auto &info = aggs_[j];
       if (step_ == core::AggregationNode::Step::kPartial || step_ == core::AggregationNode::Step::kIntermediate) {
         if (info.function->usesSumAndCount()) {
-          auto sumCol = std::make_shared<FlatVector<int64_t>>(
-              pool, BIGINT(), nullptr, numGroups, AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
+          auto sumCol = detail::createFlatVectorForType(pool, outTypes[outCols.size()], numGroups);
           auto countCol = std::make_shared<FlatVector<int64_t>>(
               pool, BIGINT(), nullptr, numGroups, AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
           int i = 0;
           if (groups_.empty() && global_) {
-            sumCol->mutableRawValues()[0] = 0;
+            detail::writeVariantToVector(Variant(0.0), sumCol, 0);
             countCol->mutableRawValues()[0] = 0;
           } else {
             for (auto &[key, group] : groups_) {
               auto &res = group.aggResults[j];
-              sumCol->mutableRawValues()[i] = res.sum;
+              detail::writeVariantToVector(Variant(res.sum), sumCol, i);
               countCol->mutableRawValues()[i] = res.count;
               ++i;
             }
@@ -844,32 +898,34 @@ public:
           outCols.push_back(sumCol);
           outCols.push_back(countCol);
         } else {
-          auto col = std::make_shared<FlatVector<int64_t>>(pool, BIGINT(), nullptr, numGroups,
-                                                           AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
+          auto col = detail::createFlatVectorForType(pool, outTypes[outCols.size()], numGroups);
           int i = 0;
-          if (groups_.empty() && global_)
-            col->mutableRawValues()[0] = 0;
-          else {
+          if (groups_.empty() && global_) {
+            detail::writeVariantToVector(
+                info.resultType->kind() == TypeKind::DOUBLE ? Variant(0.0) : Variant(int64_t{0}), col, 0);
+          } else {
             for (auto &[key, group] : groups_) {
               auto &res = group.aggResults[j];
-              if (info.func == "sum")
-                col->mutableRawValues()[i++] = res.sum;
-              else
-                col->mutableRawValues()[i++] = res.count;
+              if (info.func == "sum") {
+                detail::writeVariantToVector(info.resultType->kind() == TypeKind::DOUBLE ? Variant(res.sum)
+                                                                                          : Variant(static_cast<int64_t>(res.sum)), col, i++);
+              } else {
+                detail::writeVariantToVector(Variant(res.count), col, i++);
+              }
             }
           }
           outCols.push_back(col);
         }
       } else {
-        auto col = std::make_shared<FlatVector<int64_t>>(pool, BIGINT(), nullptr, numGroups,
-                                                         AlignedBuffer::allocate(numGroups * sizeof(int64_t), pool));
+        auto col = detail::createFlatVectorForType(pool, outTypes[outCols.size()], numGroups);
         int i = 0;
-        if (groups_.empty() && global_)
-          col->mutableRawValues()[0] = 0;
-        else {
+        if (groups_.empty() && global_) {
+          detail::writeVariantToVector(
+              outTypes[outCols.size()]->kind() == TypeKind::DOUBLE ? Variant(0.0) : Variant(int64_t{0}), col, 0);
+        } else {
           for (auto &[key, group] : groups_) {
             auto &res = group.aggResults[j];
-            col->mutableRawValues()[i++] = info.function->finalize(res);
+            detail::writeVariantToVector(info.function->finalize(res, outTypes[outCols.size()]), col, i++);
           }
         }
         outCols.push_back(col);
@@ -902,6 +958,12 @@ private:
       auto simple = std::dynamic_pointer_cast<SimpleVector<int32_t>>(vec);
       if (!simple)
         VELOX_FAIL("Expected INTEGER vector for grouping key.");
+      return Variant(simple->valueAt(row));
+    }
+    case TypeKind::DOUBLE: {
+      auto simple = std::dynamic_pointer_cast<SimpleVector<double>>(vec);
+      if (!simple)
+        VELOX_FAIL("Expected DOUBLE vector for grouping key.");
       return Variant(simple->valueAt(row));
     }
     case TypeKind::VARCHAR: {

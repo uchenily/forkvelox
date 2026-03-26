@@ -50,7 +50,7 @@ public:
 
     if (std::isdigit(c)) {
       size_t start = pos_;
-      while (pos_ < input_.size() && std::isdigit(input_[pos_]))
+      while (pos_ < input_.size() && (std::isdigit(input_[pos_]) || input_[pos_] == '.'))
         pos_++;
       return {TokenType::NUMBER, input_.substr(start, pos_ - start)};
     }
@@ -308,8 +308,11 @@ private:
     }
 
     if (current().type == TokenType::NUMBER) {
-      int64_t val = std::stoll(consume().text);
-      return std::make_shared<core::ConstantTypedExpr>(Variant(val));
+      auto text = consume().text;
+      if (text.find('.') != std::string::npos) {
+        return std::make_shared<core::ConstantTypedExpr>(Variant(std::stod(text)));
+      }
+      return std::make_shared<core::ConstantTypedExpr>(Variant(std::stoll(text)));
     }
 
     throw std::runtime_error("Unexpected token in primary: " + current().text);

@@ -14,6 +14,7 @@ public:
   Variant() : kind_(TypeKind::UNKNOWN), value_(std::monostate{}) {}
   Variant(int64_t val) : kind_(TypeKind::BIGINT), value_(val) {}
   Variant(int32_t val) : kind_(TypeKind::INTEGER), value_(static_cast<int64_t>(val)) {} // Promoted
+  Variant(double val) : kind_(TypeKind::DOUBLE), value_(val) {}
   Variant(std::string val) : kind_(TypeKind::VARCHAR), value_(val) {}
   Variant(const char *val) : kind_(TypeKind::VARCHAR), value_(std::string(val)) {}
   Variant(TypeKind kind) : kind_(kind), value_(std::monostate{}) {} // Null of kind
@@ -29,6 +30,12 @@ public:
       if (std::holds_alternative<int64_t>(value_))
         return std::get<int64_t>(value_);
     }
+    if constexpr (std::is_same_v<T, double>) {
+      if (std::holds_alternative<double>(value_))
+        return std::get<double>(value_);
+      if (std::holds_alternative<int64_t>(value_))
+        return static_cast<double>(std::get<int64_t>(value_));
+    }
     if constexpr (std::is_same_v<T, std::string>) {
       if (std::holds_alternative<std::string>(value_))
         return std::get<std::string>(value_);
@@ -41,6 +48,8 @@ public:
       return "null";
     if (std::holds_alternative<int64_t>(value_))
       return std::to_string(std::get<int64_t>(value_));
+    if (std::holds_alternative<double>(value_))
+      return std::to_string(std::get<double>(value_));
     if (std::holds_alternative<std::string>(value_))
       return std::get<std::string>(value_);
     return "?";

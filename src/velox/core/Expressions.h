@@ -30,6 +30,8 @@ public:
       return INTEGER();
     if (value_.kind() == TypeKind::BIGINT)
       return BIGINT();
+    if (value_.kind() == TypeKind::DOUBLE)
+      return DOUBLE();
     if (value_.kind() == TypeKind::VARCHAR)
       return VARCHAR();
     return std::make_shared<IntegerType>(); // Default/Unknown
@@ -156,7 +158,11 @@ public:
       }
 
       if (name == "plus" || name == "minus" || name == "multiply" || name == "mod" || name == "divide") {
-        type = BIGINT();
+        bool hasDouble = false;
+        for (const auto& input : typedInputs) {
+          hasDouble = hasDouble || input->type()->kind() == TypeKind::DOUBLE;
+        }
+        type = (name == "divide" || hasDouble) ? DOUBLE() : BIGINT();
       } else if (name == "concat" || name == "upper" || name == "substr") {
         type = VARCHAR();
       } else if (name == "eq" || name == "neq" || name == "lt" || name == "gt" || name == "lte" || name == "gte") {
