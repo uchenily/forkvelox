@@ -4,3 +4,6 @@
 [submodule "thirdparties/liburing"]
 	path = thirdparties/liburing
 	url = https://github.com/axboe/liburing
+[submodule "thirdparties/tpch-kit"]
+	path = thirdparties/tpch-kit
+	url = https://github.com/gregrahn/tpch-kit
