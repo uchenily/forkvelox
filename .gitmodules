@@ -1,0 +1,6 @@
+[submodule "thirdparties/stdexec"]
+	path = thirdparties/stdexec
+	url = https://github.com/nvidia/stdexec
+[submodule "thirdparties/liburing"]
+	path = thirdparties/liburing
+	url = https://github.com/axboe/liburing
