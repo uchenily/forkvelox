@@ -37,6 +37,7 @@ add_library(velox_common
     velox/exec/PlanNodeStats.cpp
     velox/exec/Task.cpp
     velox/core/ExecutionRuntime.cpp
+    velox/tpch/gen/TpchGen.cpp
     velox/expression/Expr.cpp
     velox/expression/LambdaExpr.cpp
     velox/expression/FunctionRegistry.cpp

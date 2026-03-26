@@ -229,18 +229,20 @@ private:
 class TableScanNode : public PlanNode {
 public:
   using PlanNode::toString;
-  TableScanNode(PlanNodeId id, tpch::Table table, std::vector<std::string> columns)
-      : id_(std::move(id)), table_(table), columns_(std::move(columns)) {}
+  TableScanNode(PlanNodeId id, tpch::Table table, std::vector<std::string> columns, int scaleFactor = 1)
+      : id_(std::move(id)), table_(table), columns_(std::move(columns)), scaleFactor_(scaleFactor) {}
   const PlanNodeId &id() const override { return id_; }
   std::string toString() const override { return "TableScan"; }
   std::vector<std::shared_ptr<const PlanNode>> sources() const override { return {}; }
   tpch::Table table() const { return table_; }
   const std::vector<std::string> &columns() const { return columns_; }
+  int scaleFactor() const { return scaleFactor_; }
 
 private:
   PlanNodeId id_;
   tpch::Table table_;
   std::vector<std::string> columns_;
+  int scaleFactor_;
 };
 
 class HashJoinNode : public PlanNode {

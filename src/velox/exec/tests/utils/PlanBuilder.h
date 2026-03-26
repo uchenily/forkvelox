@@ -81,7 +81,7 @@ public:
 
   // Stub for TPCH
   PlanBuilder &tpchTableScan(tpch::Table table, std::vector<std::string> columns, int scaleFactor) {
-    root_ = std::make_shared<core::TableScanNode>(generator_->next(), table, columns);
+    root_ = std::make_shared<core::TableScanNode>(generator_->next(), table, columns, scaleFactor);
     return *this;
   }
 
