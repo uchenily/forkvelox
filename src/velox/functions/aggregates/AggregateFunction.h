@@ -1,6 +1,7 @@
 #pragma once
 
 #include "velox/vector/ComplexVector.h"
+#include "velox/type/Variant.h"
 #include <memory>
 #include <string>
 

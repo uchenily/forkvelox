@@ -685,7 +685,7 @@ public:
       std::vector<int> aggCountIndices;
       aggColIndices.reserve(aggs_.size());
       aggCountIndices.reserve(aggs_.size());
-      for (const auto &info : aggs_) {
+      for (auto &info : aggs_) {
         int valueIdx = -1;
         int countIdx = -1;
         if (info.func == "avg") {
@@ -704,6 +704,15 @@ public:
               break;
             }
           }
+        }
+        if (info.func == "avg") {
+          VELOX_CHECK_GE(valueIdx, 0, "Aggregation value '{}' not found in input.", info.alias);
+          info.inputType = rowType->childAt(valueIdx);
+          info.resultType = DOUBLE();
+        } else {
+          VELOX_CHECK_GE(valueIdx, 0, "Aggregation value '{}' not found in input.", info.alias);
+          info.inputType = rowType->childAt(valueIdx);
+          info.resultType = info.function->resultType(info.inputType);
         }
         aggColIndices.push_back(valueIdx);
         aggCountIndices.push_back(countIdx);
@@ -737,12 +746,12 @@ public:
     if (!aggArgsInitialized_) {
       aggArgIndices_.clear();
       aggArgIndices_.reserve(aggs_.size());
-      for (const auto &info : aggs_) {
+      for (auto &info : aggs_) {
         if (info.func == "count" && info.arg == "1") {
           aggArgIndices_.push_back(-1);
           if (!info.inputType) {
-            const_cast<AggregateInfo&>(info).inputType = BIGINT();
-            const_cast<AggregateInfo&>(info).resultType = info.function->resultType(BIGINT());
+            info.inputType = BIGINT();
+            info.resultType = info.function->resultType(BIGINT());
           }
           continue;
         }
@@ -750,9 +759,8 @@ public:
         for (int k = 0; k < rowType->size(); ++k) {
           if (rowType->nameOf(k) == info.arg) {
             aggArgIndices_.push_back(k);
-            auto& mutableInfo = const_cast<AggregateInfo&>(info);
-            mutableInfo.inputType = rowType->childAt(k);
-            mutableInfo.resultType = info.function->resultType(mutableInfo.inputType);
+            info.inputType = rowType->childAt(k);
+            info.resultType = info.function->resultType(info.inputType);
             found = true;
             break;
           }
@@ -792,6 +800,11 @@ public:
   RowVectorPtr getOutput() override {
     if (!finished_ || produced_)
       return nullptr;
+    if ((step_ == core::AggregationNode::Step::kPartial || step_ == core::AggregationNode::Step::kIntermediate) &&
+        !hasInput_) {
+      produced_ = true;
+      return nullptr;
+    }
     if (!global_ && !hasInput_) {
       produced_ = true;
       return nullptr;

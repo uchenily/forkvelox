@@ -312,7 +312,7 @@ private:
       if (text.find('.') != std::string::npos) {
         return std::make_shared<core::ConstantTypedExpr>(Variant(std::stod(text)));
       }
-      return std::make_shared<core::ConstantTypedExpr>(Variant(std::stoll(text)));
+      return std::make_shared<core::ConstantTypedExpr>(Variant(static_cast<int64_t>(std::stoll(text))));
     }
 
     throw std::runtime_error("Unexpected token in primary: " + current().text);

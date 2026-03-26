@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <unordered_set>
 
 namespace facebook::velox::tpch {
 namespace {
@@ -121,9 +122,14 @@ int64_t parseDateKey(const std::string& text) {
   return std::stoll(normalized);
 }
 
-RowVectorPtr makeLineitem(memory::MemoryPool* pool, int scaleFactor) {
+bool wants(const std::unordered_set<std::string>& requested, const std::string& column) {
+  return requested.empty() || requested.count(column) > 0;
+}
+
+RowVectorPtr makeLineitem(memory::MemoryPool* pool, int scaleFactor, const std::vector<std::string>& columnsToKeep) {
   VELOX_CHECK_EQ(scaleFactor, 1, "Only TPCH SF1 is supported right now");
   const std::string path = std::string(VELOX_TPCH_SF1_DIR) + "/lineitem.tbl";
+  const std::unordered_set<std::string> requested(columnsToKeep.begin(), columnsToKeep.end());
 
   std::vector<double> quantities;
   std::vector<double> extendedPrices;
@@ -171,35 +177,69 @@ RowVectorPtr makeLineitem(memory::MemoryPool* pool, int scaleFactor) {
     charges.push_back(charge);
   }
 
-  return std::make_shared<RowVector>(
-      pool,
-      ROW({"l_quantity",
-           "l_extendedprice",
-           "l_discount",
-           "l_tax",
-           "l_returnflag",
-           "l_linestatus",
-           "l_shipdate",
-           "l_revenue",
-           "l_disc_price",
-           "l_charge"},
-          {DOUBLE(), DOUBLE(), DOUBLE(), DOUBLE(), VARCHAR(), VARCHAR(), BIGINT(), DOUBLE(), DOUBLE(), DOUBLE()}),
-      nullptr,
-      quantities.size(),
-      std::vector<VectorPtr>{
-          makeDoubleVector(pool, quantities),
-          makeDoubleVector(pool, extendedPrices),
-          makeDoubleVector(pool, discounts),
-          makeDoubleVector(pool, taxes),
-          makeStringVector(pool, returnFlags),
-          makeStringVector(pool, lineStatuses),
-          makeIntVector(pool, shipdates),
-          makeDoubleVector(pool, revenues),
-          makeDoubleVector(pool, discountedPrices),
-          makeDoubleVector(pool, charges)});
+  std::vector<std::string> names;
+  std::vector<TypePtr> types;
+  std::vector<VectorPtr> children;
+  if (wants(requested, "l_quantity")) {
+    names.push_back("l_quantity");
+    types.push_back(DOUBLE());
+    children.push_back(makeDoubleVector(pool, quantities));
+  }
+  if (wants(requested, "l_extendedprice")) {
+    names.push_back("l_extendedprice");
+    types.push_back(DOUBLE());
+    children.push_back(makeDoubleVector(pool, extendedPrices));
+  }
+  if (wants(requested, "l_discount")) {
+    names.push_back("l_discount");
+    types.push_back(DOUBLE());
+    children.push_back(makeDoubleVector(pool, discounts));
+  }
+  if (wants(requested, "l_tax")) {
+    names.push_back("l_tax");
+    types.push_back(DOUBLE());
+    children.push_back(makeDoubleVector(pool, taxes));
+  }
+  if (wants(requested, "l_returnflag")) {
+    names.push_back("l_returnflag");
+    types.push_back(VARCHAR());
+    children.push_back(makeStringVector(pool, returnFlags));
+  }
+  if (wants(requested, "l_linestatus")) {
+    names.push_back("l_linestatus");
+    types.push_back(VARCHAR());
+    children.push_back(makeStringVector(pool, lineStatuses));
+  }
+  if (wants(requested, "l_shipdate")) {
+    names.push_back("l_shipdate");
+    types.push_back(BIGINT());
+    children.push_back(makeIntVector(pool, shipdates));
+  }
+  if (wants(requested, "l_revenue")) {
+    names.push_back("l_revenue");
+    types.push_back(DOUBLE());
+    children.push_back(makeDoubleVector(pool, revenues));
+  }
+  if (wants(requested, "l_disc_price")) {
+    names.push_back("l_disc_price");
+    types.push_back(DOUBLE());
+    children.push_back(makeDoubleVector(pool, discountedPrices));
+  }
+  if (wants(requested, "l_charge")) {
+    names.push_back("l_charge");
+    types.push_back(DOUBLE());
+    children.push_back(makeDoubleVector(pool, charges));
+  }
+
+  return std::make_shared<RowVector>(pool, ROW(names, types), nullptr, quantities.size(), children);
 }
 
-RowVectorPtr makeLineitemSplit(memory::MemoryPool* pool, int scaleFactor, int part, int totalParts) {
+RowVectorPtr makeLineitemSplit(
+    memory::MemoryPool* pool,
+    int scaleFactor,
+    int part,
+    int totalParts,
+    const std::vector<std::string>& columnsToKeep) {
   VELOX_CHECK_EQ(scaleFactor, 1, "Only TPCH SF1 is supported right now");
   VELOX_CHECK_GE(part, 0, "TPCH split part must be non-negative");
   VELOX_CHECK_GT(totalParts, 0, "TPCH split totalParts must be positive");
@@ -207,6 +247,7 @@ RowVectorPtr makeLineitemSplit(memory::MemoryPool* pool, int scaleFactor, int pa
 
   const std::string path = std::string(VELOX_TPCH_SF1_DIR) + "/lineitem.tbl";
   VELOX_CHECK(std::filesystem::exists(path), "Generated TPCH lineitem data not found at {}", path);
+  const std::unordered_set<std::string> requested(columnsToKeep.begin(), columnsToKeep.end());
 
   const auto fileSize = static_cast<std::streamoff>(std::filesystem::file_size(path));
   const auto start = (fileSize * part) / totalParts;
@@ -276,32 +317,61 @@ RowVectorPtr makeLineitemSplit(memory::MemoryPool* pool, int scaleFactor, int pa
     charges.push_back(charge);
   }
 
-  return std::make_shared<RowVector>(
-      pool,
-      ROW({"l_quantity",
-           "l_extendedprice",
-           "l_discount",
-           "l_tax",
-           "l_returnflag",
-           "l_linestatus",
-           "l_shipdate",
-           "l_revenue",
-           "l_disc_price",
-           "l_charge"},
-          {DOUBLE(), DOUBLE(), DOUBLE(), DOUBLE(), VARCHAR(), VARCHAR(), BIGINT(), DOUBLE(), DOUBLE(), DOUBLE()}),
-      nullptr,
-      quantities.size(),
-      std::vector<VectorPtr>{
-          makeDoubleVector(pool, quantities),
-          makeDoubleVector(pool, extendedPrices),
-          makeDoubleVector(pool, discounts),
-          makeDoubleVector(pool, taxes),
-          makeStringVector(pool, returnFlags),
-          makeStringVector(pool, lineStatuses),
-          makeIntVector(pool, shipdates),
-          makeDoubleVector(pool, revenues),
-          makeDoubleVector(pool, discountedPrices),
-          makeDoubleVector(pool, charges)});
+  std::vector<std::string> names;
+  std::vector<TypePtr> types;
+  std::vector<VectorPtr> children;
+  if (wants(requested, "l_quantity")) {
+    names.push_back("l_quantity");
+    types.push_back(DOUBLE());
+    children.push_back(makeDoubleVector(pool, quantities));
+  }
+  if (wants(requested, "l_extendedprice")) {
+    names.push_back("l_extendedprice");
+    types.push_back(DOUBLE());
+    children.push_back(makeDoubleVector(pool, extendedPrices));
+  }
+  if (wants(requested, "l_discount")) {
+    names.push_back("l_discount");
+    types.push_back(DOUBLE());
+    children.push_back(makeDoubleVector(pool, discounts));
+  }
+  if (wants(requested, "l_tax")) {
+    names.push_back("l_tax");
+    types.push_back(DOUBLE());
+    children.push_back(makeDoubleVector(pool, taxes));
+  }
+  if (wants(requested, "l_returnflag")) {
+    names.push_back("l_returnflag");
+    types.push_back(VARCHAR());
+    children.push_back(makeStringVector(pool, returnFlags));
+  }
+  if (wants(requested, "l_linestatus")) {
+    names.push_back("l_linestatus");
+    types.push_back(VARCHAR());
+    children.push_back(makeStringVector(pool, lineStatuses));
+  }
+  if (wants(requested, "l_shipdate")) {
+    names.push_back("l_shipdate");
+    types.push_back(BIGINT());
+    children.push_back(makeIntVector(pool, shipdates));
+  }
+  if (wants(requested, "l_revenue")) {
+    names.push_back("l_revenue");
+    types.push_back(DOUBLE());
+    children.push_back(makeDoubleVector(pool, revenues));
+  }
+  if (wants(requested, "l_disc_price")) {
+    names.push_back("l_disc_price");
+    types.push_back(DOUBLE());
+    children.push_back(makeDoubleVector(pool, discountedPrices));
+  }
+  if (wants(requested, "l_charge")) {
+    names.push_back("l_charge");
+    types.push_back(DOUBLE());
+    children.push_back(makeDoubleVector(pool, charges));
+  }
+
+  return std::make_shared<RowVector>(pool, ROW(names, types), nullptr, quantities.size(), children);
 }
 
 RowVectorPtr projectColumns(memory::MemoryPool* pool, const RowVectorPtr& data, const std::vector<std::string>& columns) {
@@ -365,7 +435,7 @@ RowVectorPtr readTable(memory::MemoryPool* pool, Table table, const std::vector<
       data = makeRegion(pool);
       break;
     case TBL_LINEITEM:
-      data = makeLineitem(pool, scaleFactor);
+      data = makeLineitem(pool, scaleFactor, columns);
       break;
   }
   return projectColumns(pool, data, columns);
@@ -389,7 +459,7 @@ RowVectorPtr readTableSplit(
       data = makeRegion(pool);
       break;
     case TBL_LINEITEM:
-      data = makeLineitemSplit(pool, scaleFactor, part, totalParts);
+      data = makeLineitemSplit(pool, scaleFactor, part, totalParts, columns);
       break;
   }
   return projectColumns(pool, data, columns);

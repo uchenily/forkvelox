@@ -11,3 +11,6 @@ examples:
 
 q6:
     cmake --build build -j 32 --target tpch_q6_check
+
+q1:
+    cmake --build build -j 32 --target tpch_q1_check

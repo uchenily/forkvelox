@@ -17,7 +17,7 @@ foreach(source_file IN LISTS example_sources)
   get_filename_component(target_name "${source_file}" NAME_WE)
   add_executable(${target_name} "${source_file}")
   target_link_libraries(${target_name} velox_common Threads::Threads)
-  if (target_name STREQUAL "TpchQ6")
+  if (target_name STREQUAL "TpchQ6" OR target_name STREQUAL "TpchQ1")
     add_dependencies(${target_name} tpch_sf1_lineitem)
   endif()
   list(APPEND example_targets ${target_name})
@@ -26,7 +26,26 @@ endforeach()
 set(TPCH_CHECK_DIR ${CMAKE_SOURCE_DIR}/thirdparties/tpch-kit/dbgen/check_answers)
 set(TPCH_ANSWERS_DIR ${CMAKE_SOURCE_DIR}/thirdparties/tpch-kit/dbgen/answers)
 set(TPCH_RESULTS_DIR ${CMAKE_BINARY_DIR}/tpch/results)
+set(TPCH_Q1_RESULT ${TPCH_RESULTS_DIR}/q1.out)
 set(TPCH_Q6_RESULT ${TPCH_RESULTS_DIR}/q6.out)
+
+if (TARGET TpchQ1)
+  add_custom_command(
+    OUTPUT ${TPCH_Q1_RESULT}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${TPCH_RESULTS_DIR}
+    COMMAND $<TARGET_FILE:TpchQ1> --answer-output ${TPCH_Q1_RESULT}
+    DEPENDS TpchQ1 tpch_sf1_lineitem
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  )
+
+  add_custom_target(tpch_q1_answer DEPENDS ${TPCH_Q1_RESULT})
+
+  add_custom_target(tpch_q1_check
+    COMMAND ${CMAKE_COMMAND} -E chdir ${TPCH_CHECK_DIR}
+            perl cmpq.pl 1 ${TPCH_ANSWERS_DIR}/q1.out ${TPCH_Q1_RESULT}
+    DEPENDS tpch_q1_answer
+  )
+endif()
 
 if (TARGET TpchQ6)
   add_custom_command(

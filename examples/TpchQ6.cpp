@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <cmath>
 #include <string_view>
 #include <thread>
 
@@ -43,7 +44,6 @@ int main(int argc, char** argv) {
   parse::registerTypeResolver();
 
   constexpr const char* kTpchConnectorId = "tpch-q6";
-  const std::string exchangeId = "tpch_q6_exchange";
   connector::tpch::TpchConnectorFactory factory;
   auto tpchConnector =
       factory.newConnector(kTpchConnectorId, std::make_shared<config::ConfigBase>(std::unordered_map<std::string, std::string>()));
@@ -55,13 +55,13 @@ int main(int argc, char** argv) {
                   .capturePlanNodeId(scanId)
                   .filter("l_shipdate >= 19940101")
                   .filter("l_shipdate < 19950101")
-                  .filter("l_discount >= 5")
-                  .filter("l_discount <= 7")
+                  .filter("l_discount >= 0.05")
+                  .filter("l_discount <= 0.07")
                   .filter("l_quantity < 24")
-                  .partialAggregation({}, {"sum(l_revenue) AS revenue_x10000"})
-                  .localPartition(exchangeId)
-                  .localMerge(exchangeId)
-                  .finalAggregation({}, {"sum(revenue_x10000) AS revenue_x10000"})
+                  .partialAggregation({}, {"sum(l_revenue) AS revenue"})
+                  .localPartition("tpch_q6_exchange")
+                  .localMerge("tpch_q6_exchange")
+                  .finalAggregation({}, {"sum(revenue) AS revenue"})
                   .planNode();
 
   auto runtime = std::make_shared<core::ExecutionRuntime>();
@@ -92,15 +92,12 @@ int main(int argc, char** argv) {
   VELOX_CHECK(result != nullptr, "TPC-H Q6 returned no rows");
   VELOX_CHECK_EQ(result->size(), 1);
 
-  auto revenue = std::dynamic_pointer_cast<SimpleVector<int64_t>>(result->childAt(0));
-  VELOX_CHECK(revenue != nullptr, "TPC-H Q6 expected BIGINT revenue result");
+  auto revenue = std::dynamic_pointer_cast<SimpleVector<double>>(result->childAt(0));
+  VELOX_CHECK(revenue != nullptr, "TPC-H Q6 expected DOUBLE revenue result");
 
-  constexpr int64_t kExpectedRevenueX10000 = 1231410782283;
-  VELOX_CHECK_EQ(revenue->valueAt(0), kExpectedRevenueX10000);
-
-  const auto whole = revenue->valueAt(0) / 10000;
-  const auto fraction = revenue->valueAt(0) % 10000;
-  const double revenueValue = static_cast<double>(revenue->valueAt(0)) / 10000.0;
+  constexpr double kExpectedRevenue = 123141078.23;
+  VELOX_CHECK_LT(std::abs(revenue->valueAt(0) - kExpectedRevenue), 0.01);
+  const double revenueValue = revenue->valueAt(0);
 
   if (!answerOutputPath.empty()) {
     std::ofstream out(answerOutputPath, std::ios::trunc);
@@ -109,7 +106,8 @@ int main(int argc, char** argv) {
     out << std::fixed << std::setprecision(2) << revenueValue << '\n';
   }
 
-  std::cout << "Q6 revenue_x10000: " << revenue->valueAt(0) << std::endl;
-  std::cout << "Q6 revenue: " << whole << '.' << std::setw(4) << std::setfill('0') << fraction << std::endl;
+  if (answerOutputPath.empty()) {
+    std::cout << "Q6 revenue: " << std::fixed << std::setprecision(2) << revenueValue << std::endl;
+  }
   return 0;
 }
