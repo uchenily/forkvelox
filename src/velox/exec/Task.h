@@ -56,11 +56,11 @@ class Task : public std::enable_shared_from_this<Task> {
   }
 
  private:
-  struct DriverBlockingState {
+  struct DriverPendingState {
     std::shared_ptr<async::AsyncEvent> event;
     BlockingReason reason{BlockingReason::kNotBlocked};
 
-    bool blocked(std::shared_ptr<async::AsyncEvent>* outEvent = nullptr) const;
+    bool pending(std::shared_ptr<async::AsyncEvent>* outEvent = nullptr) const;
     void set(std::shared_ptr<async::AsyncEvent> inEvent, BlockingReason inReason);
     void clear();
   };
@@ -68,10 +68,10 @@ class Task : public std::enable_shared_from_this<Task> {
   struct DriverEntry {
     std::shared_ptr<Driver> driver;
     bool finished{false};
-    bool blocked{false};
+    bool pending{false};
     bool enqueued{false};
     bool running{false};
-    uint64_t blockedSequence{0};
+    uint64_t pendingSequence{0};
   };
 
   void prepare();
@@ -88,7 +88,7 @@ class Task : public std::enable_shared_from_this<Task> {
   void enqueueDriverLocked(size_t driverIndex);
   void scheduleWorkers();
   void wakeSchedulers();
-  void resumeDriverFromFuture(size_t driverIndex, uint64_t blockedSequence);
+  void resumePendingDriver(size_t driverIndex, uint64_t pendingSequence);
   RowVectorPtr nextImpl(std::shared_ptr<async::AsyncEvent>* event);
   bool allDriversFinishedLocked() const;
 
@@ -105,7 +105,7 @@ class Task : public std::enable_shared_from_this<Task> {
   std::unordered_map<core::PlanNodeId, std::shared_ptr<SourceState>> sourceStates_;
 
   std::vector<DriverEntry> drivers_;
-  std::vector<DriverBlockingState> driverBlockingStates_;
+  std::vector<DriverPendingState> driverPendingStates_;
   std::vector<size_t> runnable_;
   std::vector<RowVectorPtr> results_;
   TaskStats stats_;

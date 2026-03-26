@@ -25,7 +25,7 @@ class LocalExchangeQueue : public std::enable_shared_from_this<LocalExchangeQueu
   void enqueue(RowVectorPtr batch);
   bool dequeue(RowVectorPtr& batch);
   void producerFinished();
-  BlockingReason blockingReason(std::shared_ptr<async::AsyncEvent>* event = nullptr);
+  BlockingReason pendingReason(std::shared_ptr<async::AsyncEvent>* event = nullptr);
 
   const std::string& id() const {
     return id_;

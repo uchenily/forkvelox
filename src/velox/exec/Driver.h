@@ -34,7 +34,7 @@ class Driver {
       std::vector<RowVectorPtr>& results,
       std::shared_ptr<async::AsyncEvent>* event = nullptr,
       bool stopAtFirstBatch = false);
-  BlockingReason isBlocked();
+  BlockingReason pendingReason();
   bool isFinished() const;
 
   void setYieldCheck(std::function<bool()> yieldCheck) {

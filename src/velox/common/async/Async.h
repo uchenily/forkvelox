@@ -36,11 +36,6 @@ class AsyncEvent {
     return state_->ready;
   }
 
-  void wait() const {
-    std::unique_lock<std::mutex> lock(state_->mutex);
-    state_->cv.wait(lock, [&]() { return state_->ready; });
-  }
-
   void notify() {
     std::vector<std::function<void()>> callbacks;
     {

@@ -16,7 +16,7 @@ class SharedValuesSourceState final : public SourceState {
  public:
   explicit SharedValuesSourceState(std::vector<RowVectorPtr> values) : values_(std::move(values)) {}
 
-  BlockingReason isBlocked(std::shared_ptr<async::AsyncEvent>* event) override {
+  BlockingReason pendingReason(std::shared_ptr<async::AsyncEvent>* event) override {
     return BlockingReason::kNotBlocked;
   }
 
@@ -69,7 +69,7 @@ class SharedSplitSourceState final : public SourceState {
     notify();
   }
 
-  BlockingReason isBlocked(std::shared_ptr<async::AsyncEvent>* event) override {
+  BlockingReason pendingReason(std::shared_ptr<async::AsyncEvent>* event) override {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!splits_.empty() || noMoreSplits_) {
       return BlockingReason::kNotBlocked;
@@ -167,7 +167,7 @@ const char* blockingReasonName(BlockingReason reason) {
   return "Unknown";
 }
 
-bool Task::DriverBlockingState::blocked(std::shared_ptr<async::AsyncEvent>* outEvent) const {
+bool Task::DriverPendingState::pending(std::shared_ptr<async::AsyncEvent>* outEvent) const {
   if (!event) {
     return false;
   }
@@ -180,12 +180,12 @@ bool Task::DriverBlockingState::blocked(std::shared_ptr<async::AsyncEvent>* outE
   return true;
 }
 
-void Task::DriverBlockingState::set(std::shared_ptr<async::AsyncEvent> inEvent, BlockingReason inReason) {
+void Task::DriverPendingState::set(std::shared_ptr<async::AsyncEvent> inEvent, BlockingReason inReason) {
   event = std::move(inEvent);
   reason = inReason;
 }
 
-void Task::DriverBlockingState::clear() {
+void Task::DriverPendingState::clear() {
   event.reset();
   reason = BlockingReason::kNotBlocked;
 }
@@ -234,12 +234,12 @@ BlockingReason Driver::run(
   }
 }
 
-BlockingReason Driver::isBlocked() {
+BlockingReason Driver::pendingReason() {
   if (!lastBlockedOperator_) {
     return BlockingReason::kNotBlocked;
   }
   std::shared_ptr<async::AsyncEvent> event;
-  lastBlockingReason_ = lastBlockedOperator_->isBlocked(&event);
+  lastBlockingReason_ = lastBlockedOperator_->pendingReason(&event);
   lastBlockingEvent_ = std::move(event);
   if (lastBlockingReason_ == BlockingReason::kNotBlocked) {
     lastBlockedOperator_ = nullptr;
@@ -255,7 +255,7 @@ Driver::PumpResult Driver::pump(size_t operatorIndex) {
   auto& op = operators_[operatorIndex];
 
   std::shared_ptr<async::AsyncEvent> event;
-  auto reason = op->isBlocked(&event);
+  auto reason = op->pendingReason(&event);
   if (reason != BlockingReason::kNotBlocked) {
     lastBlockedOperator_ = op.get();
     lastBlockingReason_ = reason;
@@ -373,24 +373,23 @@ RowVectorPtr Task::nextImpl(std::shared_ptr<async::AsyncEvent>* event) {
 
   for (;;) {
     int runnableDrivers = 0;
-    std::vector<std::shared_ptr<async::AsyncEvent>> blockedEvents;
+    std::vector<std::shared_ptr<async::AsyncEvent>> pendingEvents;
     for (size_t i = 0; i < drivers_.size(); ++i) {
       auto& entry = drivers_[i];
       if (entry.finished) {
         continue;
       }
 
-      std::shared_ptr<async::AsyncEvent> blockedEvent;
-      if (driverBlockingStates_[i].blocked(&blockedEvent)) {
-        blockedEvents.push_back(std::move(blockedEvent));
+      std::shared_ptr<async::AsyncEvent> pendingEvent;
+      if (driverPendingStates_[i].pending(&pendingEvent)) {
+        pendingEvents.push_back(std::move(pendingEvent));
         continue;
       }
-      driverBlockingStates_[i].clear();
+      driverPendingStates_[i].clear();
       ++runnableDrivers;
 
       std::vector<RowVectorPtr> localResults;
-      std::shared_ptr<async::AsyncEvent> driverEvent;
-      auto reason = entry.driver->run(localResults, &driverEvent, true);
+      auto reason = entry.driver->run(localResults, &pendingEvent, true);
       if (!localResults.empty()) {
         return localResults.front();
       }
@@ -405,9 +404,9 @@ RowVectorPtr Task::nextImpl(std::shared_ptr<async::AsyncEvent>* event) {
       if (reason == BlockingReason::kCancelled) {
         throw std::runtime_error("Task cancelled");
       }
-      if (driverEvent) {
-        driverBlockingStates_[i].set(driverEvent, reason);
-        blockedEvents.push_back(std::move(driverEvent));
+      if (pendingEvent) {
+        driverPendingStates_[i].set(pendingEvent, reason);
+        pendingEvents.push_back(std::move(pendingEvent));
       }
     }
 
@@ -415,11 +414,11 @@ RowVectorPtr Task::nextImpl(std::shared_ptr<async::AsyncEvent>* event) {
       return nullptr;
     }
     if (runnableDrivers == 0) {
-      if (event != nullptr && !blockedEvents.empty()) {
-        *event = collectAnyEvents(std::move(blockedEvents));
+      if (event != nullptr && !pendingEvents.empty()) {
+        *event = collectAnyEvents(std::move(pendingEvents));
         return nullptr;
       }
-      VELOX_FAIL("Cannot make progress in serial mode: all drivers are blocked");
+      VELOX_FAIL("Cannot make progress in serial mode: no drivers are ready");
     }
   }
 }
@@ -491,11 +490,20 @@ void Task::instantiateDrivers() {
   for (const auto& factory : driverFactories_) {
     const bool producerPipeline = !factory->planNodes.empty() &&
         std::dynamic_pointer_cast<const core::LocalPartitionNode>(factory->planNodes.back()) != nullptr;
+    std::shared_ptr<HashJoinBridge> buildBridge;
+    if (factory->operatorSupplier) {
+      if (auto join = std::dynamic_pointer_cast<const core::HashJoinNode>(factory->consumerNode)) {
+        buildBridge = joinBridges_.at(join->id());
+      }
+    }
 
     for (size_t i = 0; i < factory->numDrivers; ++i) {
       if (producerPipeline) {
         auto partition = std::dynamic_pointer_cast<const core::LocalPartitionNode>(factory->planNodes.back());
         exchanges_.at(partition->exchangeId())->addProducer();
+      }
+      if (buildBridge) {
+        buildBridge->addBuildDriver();
       }
 
       drivers_.push_back(DriverEntry{makeDriver(*factory, driverId++, pipelineId), false, false, false, false});
@@ -503,7 +511,7 @@ void Task::instantiateDrivers() {
     }
     ++pipelineId;
   }
-  driverBlockingStates_.resize(drivers_.size());
+  driverPendingStates_.resize(drivers_.size());
 }
 
 std::shared_ptr<Driver> Task::makeDriver(
@@ -560,6 +568,8 @@ std::shared_ptr<Operator> Task::makeOperator(const core::PlanNodePtr& planNode, 
 void Task::workerLoop() {
   while (true) {
     size_t driverIndex = 0;
+    std::shared_ptr<async::AsyncEvent> pendingEventToSubscribe;
+    uint64_t pendingSequenceToSubscribe = 0;
     {
       std::unique_lock<std::mutex> lock(mutex_);
       cv_.wait(lock, [&]() { return failed_ || allDriversFinishedLocked() || !runnable_.empty(); });
@@ -602,38 +612,41 @@ void Task::workerLoop() {
       return;
     }
 
-    std::lock_guard<std::mutex> lock(mutex_);
-    for (auto& batch : localResults) {
-      results_.push_back(std::move(batch));
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      for (auto& batch : localResults) {
+        results_.push_back(std::move(batch));
+      }
+
+      auto& entry = drivers_[driverIndex];
+      entry.running = false;
+      driverPendingStates_[driverIndex].clear();
+      if (entry.driver->isFinished()) {
+        entry.finished = true;
+        entry.pending = false;
+        ++finishedDrivers_;
+      } else if (reason == BlockingReason::kYield) {
+        enqueueDriverLocked(driverIndex);
+      } else if (reason == BlockingReason::kCancelled) {
+        exception_ = std::make_exception_ptr(std::runtime_error("Task cancelled"));
+        failed_ = true;
+      } else {
+        entry.pending = true;
+        driverPendingStates_[driverIndex].set(event, reason);
+        pendingSequenceToSubscribe = ++entry.pendingSequence;
+        if (event) {
+          pendingEventToSubscribe = event;
+        }
+      }
+      cv_.notify_all();
     }
 
-    auto& entry = drivers_[driverIndex];
-    entry.running = false;
-    driverBlockingStates_[driverIndex].clear();
-    if (entry.driver->isFinished()) {
-      entry.finished = true;
-      entry.blocked = false;
-      ++finishedDrivers_;
-    } else if (reason == BlockingReason::kYield) {
-      enqueueDriverLocked(driverIndex);
-    } else if (reason == BlockingReason::kCancelled) {
-      exception_ = std::make_exception_ptr(std::runtime_error("Task cancelled"));
-      failed_ = true;
-    } else {
-      entry.blocked = true;
-      driverBlockingStates_[driverIndex].set(event, reason);
-      const auto blockedSequence = ++entry.blockedSequence;
-      if (event) {
-        auto self = shared_from_this();
-        auto runtime = queryCtx_->runtime();
-        event->subscribe([self, runtime, driverIndex, blockedSequence]() mutable {
-          runtime->launch([self, driverIndex, blockedSequence]() {
-            self->resumeDriverFromFuture(driverIndex, blockedSequence);
-          });
-        });
-      }
+    if (pendingEventToSubscribe) {
+      auto self = shared_from_this();
+      pendingEventToSubscribe->subscribe([self, driverIndex, pendingSequenceToSubscribe]() mutable {
+        self->resumePendingDriver(driverIndex, pendingSequenceToSubscribe);
+      });
     }
-    cv_.notify_all();
   }
 }
 
@@ -672,17 +685,17 @@ void Task::wakeSchedulers() {
   cv_.notify_all();
 }
 
-void Task::resumeDriverFromFuture(size_t driverIndex, uint64_t blockedSequence) {
+void Task::resumePendingDriver(size_t driverIndex, uint64_t pendingSequence) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (failed_ || allDriversFinishedLocked()) {
     return;
   }
   auto& entry = drivers_[driverIndex];
-  if (entry.finished || !entry.blocked || entry.blockedSequence != blockedSequence) {
+  if (entry.finished || !entry.pending || entry.pendingSequence != pendingSequence) {
     return;
   }
-  driverBlockingStates_[driverIndex].clear();
-  entry.blocked = false;
+  driverPendingStates_[driverIndex].clear();
+  entry.pending = false;
   enqueueDriverLocked(driverIndex);
   cv_.notify_all();
 }

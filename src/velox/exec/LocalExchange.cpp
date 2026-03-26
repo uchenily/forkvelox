@@ -50,7 +50,7 @@ void LocalExchangeQueue::producerFinished() {
   notify();
 }
 
-BlockingReason LocalExchangeQueue::blockingReason(std::shared_ptr<async::AsyncEvent>* event) {
+BlockingReason LocalExchangeQueue::pendingReason(std::shared_ptr<async::AsyncEvent>* event) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!queue_.empty() || finishedProducers_ >= producers_) {
     return BlockingReason::kNotBlocked;
