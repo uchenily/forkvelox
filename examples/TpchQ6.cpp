@@ -50,6 +50,15 @@ int main(int argc, char** argv) {
   connector::registerConnector(tpchConnector);
 
   core::PlanNodeId scanId;
+  // select
+  // 	sum(l_extendedprice * l_discount) as revenue
+  // from
+  // 	lineitem
+  // where
+  // 	l_shipdate >= date ':1'
+  // 	and l_shipdate < date ':1' + interval '1' year
+  // 	and l_discount between :2 - 0.01 and :2 + 0.01
+  // 	and l_quantity < :3;
   auto plan = PlanBuilder()
                   .tpchTableScan(tpch::Table::TBL_LINEITEM, {"l_shipdate", "l_discount", "l_quantity", "l_revenue"}, 1)
                   .capturePlanNodeId(scanId)

@@ -301,6 +301,7 @@ RowVectorPtr makeLineitemSplit(
     const double discount = parseDouble(columns[6]);
     const double tax = parseDouble(columns[7]);
     const int64_t shipdate = parseDateKey(columns[10]);
+    // FIXME: use expr
     const double discountedPrice = extendedPrice * (1.0 - discount);
     const double charge = discountedPrice * (1.0 + tax);
     const double revenue = extendedPrice * discount;
