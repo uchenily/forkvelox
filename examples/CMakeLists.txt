@@ -23,6 +23,29 @@ foreach(source_file IN LISTS example_sources)
   list(APPEND example_targets ${target_name})
 endforeach()
 
+set(TPCH_CHECK_DIR ${CMAKE_SOURCE_DIR}/thirdparties/tpch-kit/dbgen/check_answers)
+set(TPCH_ANSWERS_DIR ${CMAKE_SOURCE_DIR}/thirdparties/tpch-kit/dbgen/answers)
+set(TPCH_RESULTS_DIR ${CMAKE_BINARY_DIR}/tpch/results)
+set(TPCH_Q6_RESULT ${TPCH_RESULTS_DIR}/q6.out)
+
+if (TARGET TpchQ6)
+  add_custom_command(
+    OUTPUT ${TPCH_Q6_RESULT}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${TPCH_RESULTS_DIR}
+    COMMAND $<TARGET_FILE:TpchQ6> --answer-output ${TPCH_Q6_RESULT}
+    DEPENDS TpchQ6 tpch_sf1_lineitem
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  )
+
+  add_custom_target(tpch_q6_answer DEPENDS ${TPCH_Q6_RESULT})
+
+  add_custom_target(tpch_q6_check
+    COMMAND ${CMAKE_COMMAND} -E chdir ${TPCH_CHECK_DIR}
+            perl cmpq.pl 6 ${TPCH_ANSWERS_DIR}/q6.out ${TPCH_Q6_RESULT}
+    DEPENDS tpch_q6_answer
+  )
+endif()
+
 if (TARGET DynamicLoading)
   add_dependencies(DynamicLoading velox_dynamic_example)
   target_compile_definitions(

@@ -1,8 +1,10 @@
 #include <folly/init/Init.h>
 
 #include <algorithm>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <string_view>
 #include <thread>
 
 #include "velox/common/base/Exceptions.h"
@@ -22,6 +24,16 @@ using namespace facebook::velox::exec::test;
 
 int main(int argc, char** argv) {
   folly::init::Init init{&argc, &argv, false};
+
+  std::string answerOutputPath;
+  for (int i = 1; i < argc; ++i) {
+    const std::string_view arg(argv[i]);
+    if (arg == "--answer-output") {
+      VELOX_CHECK(i + 1 < argc, "--answer-output requires a path");
+      answerOutputPath = argv[++i];
+      continue;
+    }
+  }
 
   memory::initializeMemoryManager(memory::MemoryManager::Options{});
   auto pool = memory::defaultMemoryPool();
@@ -88,6 +100,15 @@ int main(int argc, char** argv) {
 
   const auto whole = revenue->valueAt(0) / 10000;
   const auto fraction = revenue->valueAt(0) % 10000;
+  const double revenueValue = static_cast<double>(revenue->valueAt(0)) / 10000.0;
+
+  if (!answerOutputPath.empty()) {
+    std::ofstream out(answerOutputPath, std::ios::trunc);
+    VELOX_CHECK(out.is_open(), "Failed to open answer output file: {}", answerOutputPath);
+    out << "revenue\n";
+    out << std::fixed << std::setprecision(2) << revenueValue << '\n';
+  }
+
   std::cout << "Q6 revenue_x10000: " << revenue->valueAt(0) << std::endl;
   std::cout << "Q6 revenue: " << whole << '.' << std::setw(4) << std::setfill('0') << fraction << std::endl;
   return 0;
