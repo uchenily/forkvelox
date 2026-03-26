@@ -55,25 +55,22 @@ int main(int argc, char **argv) {
   core::PlanNodeId scanId;
   auto plan = PlanBuilder().tableScan(asRowType(batch1->type()), file1).capturePlanNodeId(scanId).planNode();
 
-  auto task = Task::create("multi_split_scan", plan, core::QueryCtx::create(), Task::ExecutionMode::kParallel);
-  task->setMaxDrivers(2);
+  auto task = Task::create("multi_split_scan", plan, core::QueryCtx::create());
   task->addSplit(scanId, Split(file1));
   task->addSplit(scanId, Split(file2));
   task->noMoreSplits(scanId);
 
-  auto results = task->run();
-  std::cout << "Multi-split task produced " << results.size() << " batches." << std::endl;
+  size_t numBatchesProduced = 0;
   std::vector<std::string> actualRows;
-  for (const auto &batch : results) {
-    if (!batch) {
-      continue;
-    }
+  while (auto batch = task->next()) {
+    ++numBatchesProduced;
     for (vector_size_t i = 0; i < batch->size(); ++i) {
       auto row = batch->toString(i);
       actualRows.push_back(row);
       std::cout << row << std::endl;
     }
   }
+  std::cout << "Multi-split task produced " << numBatchesProduced << " batches." << std::endl;
 
   std::vector<std::string> expectedRows = {"{1, 10, alpha}", "{2, 20, beta}",    "{3, 30, gamma}",
                                            "{4, 40, delta}", "{5, 50, epsilon}", "{6, 60, zeta}"};

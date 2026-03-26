@@ -1,6 +1,7 @@
 #pragma once
 
 #include <condition_variable>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <random>
@@ -22,35 +23,20 @@ class HashJoinBridge;
 
 class Task : public std::enable_shared_from_this<Task> {
  public:
-  enum class ExecutionMode {
-    kSerial,
-    kParallel,
-  };
-
   static std::shared_ptr<Task> create(
       const std::string& taskId,
       const core::PlanNodePtr& plan,
-      std::shared_ptr<core::QueryCtx> queryCtx,
-      ExecutionMode mode);
+      std::shared_ptr<core::QueryCtx> queryCtx);
 
   Task(
       std::string taskId,
       core::PlanNodePtr plan,
-      std::shared_ptr<core::QueryCtx> queryCtx,
-      ExecutionMode mode);
-
-  void setMaxDrivers(size_t maxDrivers) {
-    maxDrivers_ = std::max<size_t>(1, maxDrivers);
-  }
+      std::shared_ptr<core::QueryCtx> queryCtx);
 
   void addSplit(const core::PlanNodeId& planNodeId, exec::Split split);
   void noMoreSplits(const core::PlanNodeId& planNodeId);
 
-  void start();
-  bool supportSerialExecutionMode() const;
   RowVectorPtr next();
-  async::AsyncValue<RowVectorPtr>::Sender nextAsync();
-  std::vector<RowVectorPtr> run();
   const TaskStats& stats() const {
     return stats_;
   }
@@ -89,14 +75,12 @@ class Task : public std::enable_shared_from_this<Task> {
   void scheduleWorkers();
   void wakeSchedulers();
   void resumePendingDriver(size_t driverIndex, uint64_t pendingSequence);
-  RowVectorPtr nextImpl(std::shared_ptr<async::AsyncEvent>* event);
   bool allDriversFinishedLocked() const;
+  size_t maxDriversHint() const;
 
   std::string taskId_;
   core::PlanNodePtr plan_;
   std::shared_ptr<core::QueryCtx> queryCtx_;
-  ExecutionMode mode_;
-  size_t maxDrivers_{1};
 
   std::once_flag prepared_;
   std::vector<std::unique_ptr<DriverFactory>> driverFactories_;
@@ -107,7 +91,7 @@ class Task : public std::enable_shared_from_this<Task> {
   std::vector<DriverEntry> drivers_;
   std::vector<DriverPendingState> driverPendingStates_;
   std::vector<size_t> runnable_;
-  std::vector<RowVectorPtr> results_;
+  std::deque<RowVectorPtr> results_;
   TaskStats stats_;
 
   mutable std::mutex mutex_;

@@ -89,22 +89,18 @@ int main(int argc, char **argv) {
   std::cout << plan->toString(true, true) << '\n';
 
   auto queryCtx = core::QueryCtx::create();
-  auto task = Task::create("two_hash_join_demo", plan, queryCtx, Task::ExecutionMode::kParallel);
-  task->setMaxDrivers(2);
-
-  auto results = task->run();
-  std::cout << "Two-join task produced " << results.size() << " batches." << std::endl;
+  auto task = Task::create("two_hash_join_demo", plan, queryCtx);
+  size_t numBatchesProduced = 0;
   std::vector<std::string> actualRows;
-  for (const auto &batch : results) {
-    if (!batch) {
-      continue;
-    }
+  while (auto batch = task->next()) {
+    ++numBatchesProduced;
     for (vector_size_t i = 0; i < batch->size(); ++i) {
       auto row = batch->toString(i);
       actualRows.push_back(row);
       std::cout << row << std::endl;
     }
   }
+  std::cout << "Two-join task produced " << numBatchesProduced << " batches." << std::endl;
 
   std::vector<std::string> expectedRows = {"{1, C1}", "{2, C2}", "{3, C3}"};
   std::sort(actualRows.begin(), actualRows.end());

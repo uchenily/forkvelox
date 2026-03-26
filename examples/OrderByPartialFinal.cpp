@@ -38,11 +38,13 @@ std::vector<RowVectorPtr> makeBatches(memory::MemoryPool *pool, const RowTypePtr
   return batches;
 }
 
-void runTask(const std::string &name, const core::PlanNodePtr &plan, size_t maxDrivers) {
-  auto task = Task::create(name, plan, core::QueryCtx::create(), Task::ExecutionMode::kParallel);
-  task->setMaxDrivers(maxDrivers);
-  auto results = task->run();
-  std::cout << name << " produced " << results.size() << " batches." << std::endl;
+void runTask(const std::string &name, const core::PlanNodePtr &plan) {
+  auto task = Task::create(name, plan, core::QueryCtx::create());
+  size_t numBatchesProduced = 0;
+  while (task->next()) {
+    ++numBatchesProduced;
+  }
+  std::cout << name << " produced " << numBatchesProduced << " batches." << std::endl;
 }
 
 } // namespace
@@ -76,10 +78,10 @@ int main(int argc, char **argv) {
                        .planNode();
 
   std::cout << "Running partial OrderBy (expect multiple drivers)." << std::endl;
-  runTask("partial_orderby_task", partialPlan, 3);
+  runTask("partial_orderby_task", partialPlan);
 
   std::cout << "Running final OrderBy (expect single driver)." << std::endl;
-  runTask("final_orderby_task", finalPlan, 3);
+  runTask("final_orderby_task", finalPlan);
 
   return 0;
 }

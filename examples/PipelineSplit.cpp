@@ -62,23 +62,19 @@ int main(int argc, char **argv) {
   builder.printPlanTree("PipelineSplit Plan");
   auto plan = builder.planNode();
 
-  auto task = Task::create("pipeline_split_task", plan, core::QueryCtx::create(), Task::ExecutionMode::kParallel);
-  task->setMaxDrivers(3);
-
-  auto results = task->run();
-  std::cout << "Pipeline-split task produced " << results.size() << " batches." << std::endl;
+  auto task = Task::create("pipeline_split_task", plan, core::QueryCtx::create());
+  size_t numBatchesProduced = 0;
 
   std::vector<std::string> actualRows;
-  for (const auto &batch : results) {
-    if (!batch) {
-      continue;
-    }
+  while (auto batch = task->next()) {
+    ++numBatchesProduced;
     for (vector_size_t i = 0; i < batch->size(); ++i) {
       auto row = batch->toString(i);
       actualRows.push_back(row);
       std::cout << row << std::endl;
     }
   }
+  std::cout << "Pipeline-split task produced " << numBatchesProduced << " batches." << std::endl;
 
   std::vector<std::string> expectedRows;
   expectedRows.reserve(12);

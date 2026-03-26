@@ -57,11 +57,18 @@ std::vector<std::string> collectRows(const std::vector<RowVectorPtr> &results) {
   return rows;
 }
 
-void runTaskWithExpectedRows(const std::string &name, const core::PlanNodePtr &plan, size_t maxDrivers,
+std::vector<RowVectorPtr> collectResults(const std::shared_ptr<Task>& task) {
+  std::vector<RowVectorPtr> results;
+  while (auto batch = task->next()) {
+    results.push_back(std::move(batch));
+  }
+  return results;
+}
+
+void runTaskWithExpectedRows(const std::string &name, const core::PlanNodePtr &plan,
                              const std::vector<std::string> &expectedRows, bool orderMatters) {
-  auto task = Task::create(name, plan, core::QueryCtx::create(), Task::ExecutionMode::kParallel);
-  task->setMaxDrivers(maxDrivers);
-  auto results = task->run();
+  auto task = Task::create(name, plan, core::QueryCtx::create());
+  auto results = collectResults(task);
   std::cout << name << " produced " << results.size() << " batches." << std::endl;
   for (const auto &batch : results) {
     if (!batch) {
@@ -106,7 +113,7 @@ int main(int argc, char **argv) {
 
   std::cout << singlePlan->toString(true, true) << '\n';
   std::cout << "Running single-step aggregation." << std::endl;
-  runTaskWithExpectedRows("agg_single", singlePlan, 3, {"{21, 6, 3}"}, false);
+  runTaskWithExpectedRows("agg_single", singlePlan, {"{21, 6, 3}"}, false);
 
   const std::string exchangeId = "agg_exchange";
   auto partialFinalPlan =
@@ -120,7 +127,7 @@ int main(int argc, char **argv) {
 
   std::cout << partialFinalPlan->toString(true, true) << '\n';
   std::cout << "Running partial/final aggregation." << std::endl;
-  runTaskWithExpectedRows("agg_partial_final", partialFinalPlan, 3, {"{21, 6, 3}"}, false);
+  runTaskWithExpectedRows("agg_partial_final", partialFinalPlan, {"{21, 6, 3}"}, false);
 
   const std::string exchangeId1 = "agg_exchange_1";
   const std::string exchangeId2 = "agg_exchange_2";
@@ -138,7 +145,7 @@ int main(int argc, char **argv) {
 
   std::cout << intermediatePlan->toString(true, true) << '\n';
   std::cout << "Running partial/intermediate/final aggregation." << std::endl;
-  runTaskWithExpectedRows("agg_intermediate", intermediatePlan, 3, {"{21, 6, 3}"}, false);
+  runTaskWithExpectedRows("agg_intermediate", intermediatePlan, {"{21, 6, 3}"}, false);
 
   auto groupedBatch = makeKeyValueBatch(pool.get(), {1, 1, 2, 2, 3, 3}, {10, 20, 30, 40, 50, 60});
   std::vector<RowVectorPtr> groupedBatches{groupedBatch};
@@ -146,7 +153,7 @@ int main(int argc, char **argv) {
       PlanBuilder().values(groupedBatches).singleAggregation({"k"}, {"sum(v) AS sum_v", "count(1) AS cnt"}).planNode();
 
   std::cout << "Running group-by aggregation." << std::endl;
-  runTaskWithExpectedRows("agg_group_by", groupedPlan, 3, {"{1, 30, 2}", "{2, 70, 2}", "{3, 110, 2}"}, false);
+  runTaskWithExpectedRows("agg_group_by", groupedPlan, {"{1, 30, 2}", "{2, 70, 2}", "{3, 110, 2}"}, false);
 
   auto groupedBatch1 = makeKeyValueBatch(pool.get(), {1, 2}, {10, 30});
   auto groupedBatch2 = makeKeyValueBatch(pool.get(), {1, 3}, {20, 50});
@@ -164,7 +171,7 @@ int main(int argc, char **argv) {
 
   std::cout << groupedPartialFinalPlan->toString(true, true) << '\n';
   std::cout << "Running group-by partial/final aggregation." << std::endl;
-  runTaskWithExpectedRows("agg_group_by_partial_final", groupedPartialFinalPlan, 3,
+  runTaskWithExpectedRows("agg_group_by_partial_final", groupedPartialFinalPlan,
                           {"{1, 30, 2}", "{2, 70, 2}", "{3, 110, 2}"}, false);
 
   return 0;

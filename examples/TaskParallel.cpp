@@ -56,23 +56,18 @@ int main(int argc, char **argv) {
   auto plan = builder.planNode();
   auto queryCtx = core::QueryCtx::create();
 
-  auto task = Task::create("parallel_values_task", plan, queryCtx, Task::ExecutionMode::kParallel);
-  task->setMaxDrivers(4);
-
-  auto results = task->run();
-  std::cout << "Parallel task produced " << results.size() << " batches." << std::endl;
-
+  auto task = Task::create("parallel_values_task", plan, queryCtx);
+  size_t numBatchesProduced = 0;
   std::vector<std::string> actualRows;
-  for (const auto &batch : results) {
-    if (!batch) {
-      continue;
-    }
+  while (auto batch = task->next()) {
+    ++numBatchesProduced;
     for (vector_size_t i = 0; i < batch->size(); ++i) {
       auto row = batch->toString(i);
       actualRows.push_back(row);
       std::cout << row << std::endl;
     }
   }
+  std::cout << "Parallel task produced " << numBatchesProduced << " batches." << std::endl;
 
   std::vector<std::string> expectedRows;
   expectedRows.reserve((batchSize * numBatches) / 2);

@@ -295,17 +295,15 @@ Driver::PumpResult Driver::pump(size_t operatorIndex) {
 std::shared_ptr<Task> Task::create(
     const std::string& taskId,
     const core::PlanNodePtr& plan,
-    std::shared_ptr<core::QueryCtx> queryCtx,
-    ExecutionMode mode) {
-  return std::make_shared<Task>(taskId, plan, std::move(queryCtx), mode);
+    std::shared_ptr<core::QueryCtx> queryCtx) {
+  return std::make_shared<Task>(taskId, plan, std::move(queryCtx));
 }
 
 Task::Task(
     std::string taskId,
     core::PlanNodePtr plan,
-    std::shared_ptr<core::QueryCtx> queryCtx,
-    ExecutionMode mode)
-    : taskId_(std::move(taskId)), plan_(std::move(plan)), queryCtx_(std::move(queryCtx)), mode_(mode) {}
+    std::shared_ptr<core::QueryCtx> queryCtx)
+    : taskId_(std::move(taskId)), plan_(std::move(plan)), queryCtx_(std::move(queryCtx)) {}
 
 void Task::addSplit(const core::PlanNodeId& planNodeId, exec::Split split) {
   prepare();
@@ -325,124 +323,26 @@ void Task::noMoreSplits(const core::PlanNodeId& planNodeId) {
   state->noMoreSplits();
 }
 
-void Task::start() {
-  prepare();
-  VELOX_CHECK(mode_ == ExecutionMode::kParallel, "Task::start requires parallel execution mode");
-  std::lock_guard<std::mutex> lock(mutex_);
-  scheduleWorkers();
-}
-
-bool Task::supportSerialExecutionMode() const {
-  return true;
-}
-
 RowVectorPtr Task::next() {
-  return nextImpl(nullptr);
-}
-
-async::AsyncValue<RowVectorPtr>::Sender Task::nextAsync() {
-  auto value = async::AsyncValue<RowVectorPtr>{};
-  auto self = shared_from_this();
-  auto runtime = queryCtx_->runtime();
-  runtime->launch([self, value, runtime]() mutable {
-    auto step = std::make_shared<std::function<void()>>();
-    *step = [self, value, runtime, step]() mutable {
-      try {
-        std::shared_ptr<async::AsyncEvent> event;
-        auto batch = self->nextImpl(&event);
-        if (batch || !event) {
-          value.setValue(std::move(batch));
-          return;
-        }
-        event->subscribe([runtime, step]() mutable {
-          runtime->launch(*step);
-        });
-      } catch (...) {
-        value.setError(std::current_exception());
-      }
-    };
-    (*step)();
-  });
-  return value.sender();
-}
-
-RowVectorPtr Task::nextImpl(std::shared_ptr<async::AsyncEvent>* event) {
   prepare();
-  VELOX_CHECK(mode_ == ExecutionMode::kSerial, "Task::next requires serial execution mode");
-  VELOX_CHECK(supportSerialExecutionMode(), "Task does not support serial execution mode");
-
-  for (;;) {
-    int runnableDrivers = 0;
-    std::vector<std::shared_ptr<async::AsyncEvent>> pendingEvents;
-    for (size_t i = 0; i < drivers_.size(); ++i) {
-      auto& entry = drivers_[i];
-      if (entry.finished) {
-        continue;
-      }
-
-      std::shared_ptr<async::AsyncEvent> pendingEvent;
-      if (driverPendingStates_[i].pending(&pendingEvent)) {
-        pendingEvents.push_back(std::move(pendingEvent));
-        continue;
-      }
-      driverPendingStates_[i].clear();
-      ++runnableDrivers;
-
-      std::vector<RowVectorPtr> localResults;
-      auto reason = entry.driver->run(localResults, &pendingEvent, true);
-      if (!localResults.empty()) {
-        return localResults.front();
-      }
-      if (entry.driver->isFinished()) {
-        entry.finished = true;
-        ++finishedDrivers_;
-        continue;
-      }
-      if (reason == BlockingReason::kYield) {
-        continue;
-      }
-      if (reason == BlockingReason::kCancelled) {
-        throw std::runtime_error("Task cancelled");
-      }
-      if (pendingEvent) {
-        driverPendingStates_[i].set(pendingEvent, reason);
-        pendingEvents.push_back(std::move(pendingEvent));
-      }
-    }
-
-    if (allDriversFinishedLocked()) {
-      return nullptr;
-    }
-    if (runnableDrivers == 0) {
-      if (event != nullptr && !pendingEvents.empty()) {
-        *event = collectAnyEvents(std::move(pendingEvents));
-        return nullptr;
-      }
-      VELOX_FAIL("Cannot make progress in serial mode: no drivers are ready");
-    }
-  }
-}
-
-std::vector<RowVectorPtr> Task::run() {
-  start();
-
-  {
-    std::unique_lock<std::mutex> lock(mutex_);
-    cv_.wait(lock, [&]() {
-      return failed_ || (allDriversFinishedLocked() && activeWorkers_ == 0);
-    });
-  }
-
+  std::unique_lock<std::mutex> lock(mutex_);
+  scheduleWorkers();
+  cv_.wait(lock, [&]() { return failed_ || !results_.empty() || allDriversFinishedLocked(); });
   if (exception_) {
     std::rethrow_exception(exception_);
   }
-  return results_;
+  if (results_.empty()) {
+    return nullptr;
+  }
+  auto batch = std::move(results_.front());
+  results_.pop_front();
+  return batch;
 }
 
 void Task::prepare() {
   std::call_once(prepared_, [&]() {
     collectJoinBridges(plan_, joinBridges_);
-    LocalPlanner::plan(plan_, &joinBridges_, &driverFactories_, maxDrivers_);
+    LocalPlanner::plan(plan_, &joinBridges_, &driverFactories_, maxDriversHint());
     buildSharedStates();
     instantiateDrivers();
   });
@@ -665,11 +565,7 @@ void Task::scheduleWorkers() {
   }
   workersScheduled_ = true;
 
-  const size_t workers = mode_ == ExecutionMode::kSerial
-      ? 1
-      : std::max<size_t>(1, std::min<size_t>(
-                               std::thread::hardware_concurrency() == 0 ? 4 : std::thread::hardware_concurrency(),
-                               drivers_.size()));
+  const size_t workers = std::max<size_t>(1, std::min(maxDriversHint(), drivers_.size()));
 
   activeWorkers_ = workers;
   auto self = shared_from_this();
@@ -702,6 +598,11 @@ void Task::resumePendingDriver(size_t driverIndex, uint64_t pendingSequence) {
 
 bool Task::allDriversFinishedLocked() const {
   return finishedDrivers_ == drivers_.size();
+}
+
+size_t Task::maxDriversHint() const {
+  const auto concurrency = std::thread::hardware_concurrency();
+  return std::max<size_t>(1, concurrency == 0 ? 4 : concurrency);
 }
 
 } // namespace facebook::velox::exec
