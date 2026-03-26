@@ -5,6 +5,8 @@
 #include <numeric>
 #include <vector>
 
+#include <stdexec/execution.hpp>
+
 #include "velox/buffer/Buffer.h"
 #include "velox/common/base/Exceptions.h"
 #include "velox/common/memory/Memory.h"
@@ -44,7 +46,15 @@ int main(int argc, char** argv) {
   auto task = Task::create("serial_next_task", plan, core::QueryCtx::create(), Task::ExecutionMode::kSerial);
 
   std::vector<std::string> rows;
-  while (auto batch = task->next()) {
+  while (true) {
+    auto next = stdexec::sync_wait(task->nextAsync());
+    if (!next.has_value()) {
+      VELOX_FAIL("nextAsync did not produce a value");
+    }
+    auto [batch] = std::move(next).value();
+    if (!batch) {
+      break;
+    }
     for (vector_size_t i = 0; i < batch->size(); ++i) {
       rows.push_back(batch->toString(i));
       std::cout << batch->toString(i) << std::endl;

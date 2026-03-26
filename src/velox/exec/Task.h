@@ -48,7 +48,8 @@ class Task : public std::enable_shared_from_this<Task> {
 
   void start();
   bool supportSerialExecutionMode() const;
-  RowVectorPtr next(std::shared_ptr<async::AsyncEvent>* event = nullptr);
+  RowVectorPtr next();
+  async::AsyncValue<RowVectorPtr>::Sender nextAsync();
   std::vector<RowVectorPtr> run();
   const TaskStats& stats() const {
     return stats_;
@@ -88,6 +89,7 @@ class Task : public std::enable_shared_from_this<Task> {
   void scheduleWorkers();
   void wakeSchedulers();
   void resumeDriverFromFuture(size_t driverIndex, uint64_t blockedSequence);
+  RowVectorPtr nextImpl(std::shared_ptr<async::AsyncEvent>* event);
   bool allDriversFinishedLocked() const;
 
   std::string taskId_;

@@ -9,10 +9,26 @@
 #include <utility>
 #include <vector>
 
+#include <stdexec/execution.hpp>
+
 namespace facebook::velox::async {
+
+class AsyncEvent;
+template <typename Receiver>
+class AsyncEventOperation;
+class AsyncEventSender;
+
+template <typename T>
+class AsyncValue;
+template <typename T, typename Receiver>
+class AsyncValueOperation;
+template <typename T>
+class AsyncValueSender;
 
 class AsyncEvent {
  public:
+  using Sender = AsyncEventSender;
+
   AsyncEvent() : state_(std::make_shared<State>()) {}
 
   bool isReady() const {
@@ -56,6 +72,8 @@ class AsyncEvent {
     }
   }
 
+  Sender sender() const;
+
  private:
   struct State {
     std::mutex mutex;
@@ -70,6 +88,8 @@ class AsyncEvent {
 template <typename T>
 class AsyncValue {
  public:
+  using Sender = AsyncValueSender<T>;
+
   AsyncValue() : state_(std::make_shared<State>()) {}
 
   explicit AsyncValue(T value) : AsyncValue() {
@@ -134,6 +154,8 @@ class AsyncValue {
     }
   }
 
+  Sender sender() const;
+
  private:
   struct State {
     std::mutex mutex;
@@ -146,5 +168,86 @@ class AsyncValue {
 
   std::shared_ptr<State> state_;
 };
+
+template <typename Receiver>
+class AsyncEventOperation {
+ public:
+  AsyncEventOperation(AsyncEvent event, Receiver receiver)
+      : event_(std::move(event)), receiver_(std::move(receiver)) {}
+
+  void start() & noexcept {
+    event_.subscribe([receiver = std::move(receiver_)]() mutable {
+      stdexec::set_value(std::move(receiver));
+    });
+  }
+
+ private:
+  AsyncEvent event_;
+  Receiver receiver_;
+};
+
+class AsyncEventSender {
+ public:
+  using sender_concept = stdexec::sender_t;
+  using completion_signatures = stdexec::completion_signatures<stdexec::set_value_t()>;
+
+  template <typename Receiver>
+  auto connect(Receiver receiver) && {
+    return AsyncEventOperation<Receiver>{event_, std::move(receiver)};
+  }
+
+  explicit AsyncEventSender(AsyncEvent event) : event_(std::move(event)) {}
+
+ private:
+  AsyncEvent event_;
+};
+
+inline AsyncEvent::Sender AsyncEvent::sender() const {
+  return AsyncEventSender{*this};
+}
+
+template <typename T, typename Receiver>
+class AsyncValueOperation {
+ public:
+  AsyncValueOperation(AsyncValue<T> value, Receiver receiver)
+      : value_(std::move(value)), receiver_(std::move(receiver)) {}
+
+  void start() & noexcept {
+    value_.subscribe([receiver = std::move(receiver_), value = value_]() mutable {
+      try {
+        stdexec::set_value(std::move(receiver), value.get());
+      } catch (...) {
+        stdexec::set_error(std::move(receiver), std::current_exception());
+      }
+    });
+  }
+
+ private:
+  AsyncValue<T> value_;
+  Receiver receiver_;
+};
+
+template <typename T>
+class AsyncValueSender {
+ public:
+  using sender_concept = stdexec::sender_t;
+  using completion_signatures =
+      stdexec::completion_signatures<stdexec::set_value_t(T), stdexec::set_error_t(std::exception_ptr)>;
+
+  template <typename Receiver>
+  auto connect(Receiver receiver) && {
+    return AsyncValueOperation<T, Receiver>{value_, std::move(receiver)};
+  }
+
+  explicit AsyncValueSender(AsyncValue<T> value) : value_(std::move(value)) {}
+
+ private:
+  AsyncValue<T> value_;
+};
+
+template <typename T>
+typename AsyncValue<T>::Sender AsyncValue<T>::sender() const {
+  return AsyncValueSender<T>{*this};
+}
 
 } // namespace facebook::velox::async

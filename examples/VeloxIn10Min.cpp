@@ -46,14 +46,14 @@ public:
   }
 
   /// Compile typed expression tree into an executable ExprSet.
-  std::unique_ptr<exec::ExprSet> compileExpression(const std::string &expr, const RowTypePtr &rowType) {
+  std::unique_ptr<facebook::velox::exec::ExprSet> compileExpression(const std::string &expr, const RowTypePtr &rowType) {
     std::vector<core::TypedExprPtr> expressions = {parseExpression(expr, rowType)};
-    return std::make_unique<exec::ExprSet>(std::move(expressions), execCtx_.get());
+    return std::make_unique<facebook::velox::exec::ExprSet>(std::move(expressions), execCtx_.get());
   }
 
   /// Evaluate an expression on one batch of data.
-  VectorPtr evaluate(exec::ExprSet &exprSet, const RowVectorPtr &input) {
-    exec::EvalCtx context(execCtx_.get(), &exprSet, input.get());
+  VectorPtr evaluate(facebook::velox::exec::ExprSet &exprSet, const RowVectorPtr &input) {
+    facebook::velox::exec::EvalCtx context(execCtx_.get(), &exprSet, input.get());
 
     SelectivityVector rows(input->size());
     std::vector<VectorPtr> result(1);
@@ -62,8 +62,8 @@ public:
   }
 
   /// Make TPC-H split to add to TableScan node.
-  exec::Split makeTpchSplit() const {
-    return exec::Split(
+  facebook::velox::exec::Split makeTpchSplit() const {
+    return facebook::velox::exec::Split(
         std::make_shared<connector::tpch::TpchConnectorSplit>(kTpchConnectorId, /*cacheable=*/true, 1, 0));
   }
 

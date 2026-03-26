@@ -336,7 +336,37 @@ bool Task::supportSerialExecutionMode() const {
   return true;
 }
 
-RowVectorPtr Task::next(std::shared_ptr<async::AsyncEvent>* event) {
+RowVectorPtr Task::next() {
+  return nextImpl(nullptr);
+}
+
+async::AsyncValue<RowVectorPtr>::Sender Task::nextAsync() {
+  auto value = async::AsyncValue<RowVectorPtr>{};
+  auto self = shared_from_this();
+  auto runtime = queryCtx_->runtime();
+  runtime->launch([self, value, runtime]() mutable {
+    auto step = std::make_shared<std::function<void()>>();
+    *step = [self, value, runtime, step]() mutable {
+      try {
+        std::shared_ptr<async::AsyncEvent> event;
+        auto batch = self->nextImpl(&event);
+        if (batch || !event) {
+          value.setValue(std::move(batch));
+          return;
+        }
+        event->subscribe([runtime, step]() mutable {
+          runtime->launch(*step);
+        });
+      } catch (...) {
+        value.setError(std::current_exception());
+      }
+    };
+    (*step)();
+  });
+  return value.sender();
+}
+
+RowVectorPtr Task::nextImpl(std::shared_ptr<async::AsyncEvent>* event) {
   prepare();
   VELOX_CHECK(mode_ == ExecutionMode::kSerial, "Task::next requires serial execution mode");
   VELOX_CHECK(supportSerialExecutionMode(), "Task does not support serial execution mode");

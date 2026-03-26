@@ -48,6 +48,13 @@ public:
     return async::AsyncValue<uint64_t>(preadv(offset, buffers, context));
   }
 
+  virtual async::AsyncValue<uint64_t>::Sender preadvSender(
+      uint64_t offset,
+      const std::vector<folly::Range<char *>>& buffers,
+      const FileIoContext& context = FileIoContext()) const {
+    return preadvAsync(offset, buffers, context).sender();
+  }
+
   virtual bool hasPreadvAsync() const { return false; }
 
   virtual bool shouldCoalesce() const = 0;
@@ -160,6 +167,13 @@ public:
 
   async::AsyncValue<uint64_t> preadvAsync(uint64_t offset, const std::vector<folly::Range<char *>> &buffers,
                                           const FileIoContext &context = FileIoContext()) const override;
+
+  async::AsyncValue<uint64_t>::Sender preadvSender(
+      uint64_t offset,
+      const std::vector<folly::Range<char *>>& buffers,
+      const FileIoContext& context = FileIoContext()) const override {
+    return preadvAsync(offset, buffers, context).sender();
+  }
 
   bool hasPreadvAsync() const override { return true; }
 
