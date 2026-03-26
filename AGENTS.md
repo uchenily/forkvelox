@@ -15,7 +15,7 @@
   ```
 - Build targets:
   ```bash
-  just build
+  cmake --build build -j 32
   ```
 - Run all examples:
   ```bash
@@ -25,7 +25,7 @@
 ## Coding Style & Naming Conventions
 - Language: C++23.
 - Indentation: 2 spaces for C++ code in `src/`.
-- Naming: `CamelCase` for types, `lowerCamelCase` for methods, `kConstant` for constants.
+- Naming: `CamelCase` for types and cpp/h filenames, `lowerCamelCase` for methods, `kConstant` for constants.
 - Prefer small, focused files; keep headers in `src/velox/**` and examples in `examples/`.
 
 ## Testing Guidelines
@@ -37,4 +37,6 @@
 - For PRs (if used), include: summary of changes, demo output (if applicable), and any new build/run steps.
 
 ## Architecture Notes
-Refer to Velox
+- io_uring 处理异步IO
+- stdexec 实现异步运行时
+- `velox/` 目录是上游参考代码，默认按只读参考处理
