@@ -24,6 +24,7 @@ add_library(velox_common
     velox/common/dynamic_registry/DynamicLibraryLoader.cpp
     velox/common/file/FileSystems.cpp
     velox/common/file/File.cpp
+    velox/common/io/IoUringExecutor.cpp
     velox/dwio/common/RowVectorFile.cpp
     velox/dwio/csv/CsvReader.cpp
     velox/dwio/fvx/FvxReader.cpp
