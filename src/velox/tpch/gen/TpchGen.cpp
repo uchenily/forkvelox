@@ -6,6 +6,7 @@
 #include "velox/vector/FlatVector.h"
 
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <string>
 
@@ -157,6 +158,80 @@ RowVectorPtr makeLineitem(memory::MemoryPool* pool, int scaleFactor) {
           makeIntVector(pool, revenues)});
 }
 
+RowVectorPtr makeLineitemSplit(memory::MemoryPool* pool, int scaleFactor, int part, int totalParts) {
+  VELOX_CHECK_EQ(scaleFactor, 1, "Only TPCH SF1 is supported right now");
+  VELOX_CHECK_GE(part, 0, "TPCH split part must be non-negative");
+  VELOX_CHECK_GT(totalParts, 0, "TPCH split totalParts must be positive");
+  VELOX_CHECK_LT(part, totalParts, "TPCH split part must be less than totalParts");
+
+  const std::string path = std::string(VELOX_TPCH_SF1_DIR) + "/lineitem.tbl";
+  VELOX_CHECK(std::filesystem::exists(path), "Generated TPCH lineitem data not found at {}", path);
+
+  const auto fileSize = static_cast<std::streamoff>(std::filesystem::file_size(path));
+  const auto start = (fileSize * part) / totalParts;
+  const auto end = (fileSize * (part + 1)) / totalParts;
+
+  std::ifstream input(path);
+  VELOX_CHECK(input.good(), "Failed to open generated TPCH lineitem data at {}", path);
+
+  if (start > 0) {
+    input.seekg(start - 1);
+    char ch = 0;
+    while (input.get(ch)) {
+      if (ch == '\n') {
+        break;
+      }
+    }
+  }
+
+  std::vector<int64_t> quantities;
+  std::vector<int64_t> discounts;
+  std::vector<int64_t> shipdates;
+  std::vector<int64_t> revenues;
+
+  std::string line;
+  while (true) {
+    const auto position = input.tellg();
+    if (position == std::streampos(-1)) {
+      break;
+    }
+    if (position >= end && part + 1 < totalParts) {
+      break;
+    }
+    if (!std::getline(input, line)) {
+      break;
+    }
+    if (line.empty()) {
+      continue;
+    }
+
+    auto columns = split(line, '|');
+    VELOX_CHECK_GE(columns.size(), 11, "Unexpected TPCH lineitem row format");
+
+    const int64_t quantity = std::stoll(columns[4]);
+    const int64_t extendedPriceCents = parseCents(columns[5]);
+    const int64_t discount = std::stoll(columns[6].substr(2));
+    const int64_t shipdate = parseDateKey(columns[10]);
+    const int64_t revenue = extendedPriceCents * discount;
+
+    quantities.push_back(quantity);
+    discounts.push_back(discount);
+    shipdates.push_back(shipdate);
+    revenues.push_back(revenue);
+  }
+
+  return std::make_shared<RowVector>(
+      pool,
+      ROW({"l_quantity", "l_discount", "l_shipdate", "l_revenue"}, {BIGINT(), BIGINT(), BIGINT(), BIGINT()}),
+      nullptr,
+      quantities.size(),
+      std::vector<VectorPtr>{
+          makeIntVector(pool, quantities),
+          makeIntVector(pool, discounts),
+          makeIntVector(pool, shipdates),
+          makeIntVector(pool, revenues)});
+}
+
 RowVectorPtr projectColumns(memory::MemoryPool* pool, const RowVectorPtr& data, const std::vector<std::string>& columns) {
   if (columns.empty()) {
     return data;
@@ -209,6 +284,30 @@ RowVectorPtr readTable(memory::MemoryPool* pool, Table table, const std::vector<
       break;
     case TBL_LINEITEM:
       data = makeLineitem(pool, scaleFactor);
+      break;
+  }
+  return projectColumns(pool, data, columns);
+}
+
+RowVectorPtr readTableSplit(
+    memory::MemoryPool* pool,
+    Table table,
+    const std::vector<std::string>& columns,
+    int scaleFactor,
+    int part,
+    int totalParts) {
+  RowVectorPtr data;
+  switch (table) {
+    case TBL_NATION:
+      VELOX_CHECK_EQ(part, 0, "Nation table supports a single split");
+      data = makeNation(pool);
+      break;
+    case TBL_REGION:
+      VELOX_CHECK_EQ(part, 0, "Region table supports a single split");
+      data = makeRegion(pool);
+      break;
+    case TBL_LINEITEM:
+      data = makeLineitemSplit(pool, scaleFactor, part, totalParts);
       break;
   }
   return projectColumns(pool, data, columns);

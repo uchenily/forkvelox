@@ -62,9 +62,9 @@ public:
   }
 
   /// Make TPC-H split to add to TableScan node.
-  facebook::velox::exec::Split makeTpchSplit() const {
+  facebook::velox::exec::Split makeTpchSplit(tpch::Table table) const {
     return facebook::velox::exec::Split(
-        std::make_shared<connector::tpch::TpchConnectorSplit>(kTpchConnectorId, /*cacheable=*/true, 1, 0));
+        std::make_shared<connector::tpch::TpchConnectorSplit>(kTpchConnectorId, /*cacheable=*/true, table, 1, 0, 1));
   }
 
   /// Run the demo.
@@ -195,7 +195,7 @@ void VeloxIn10MinDemo::run() {
   // nations
   plan = PlanBuilder().tpchTableScan(tpch::Table::TBL_NATION, {"n_regionkey", "n_name"}, 1 /*scaleFactor*/).planNode();
 
-  auto nations = AssertQueryBuilder(plan).split(makeTpchSplit()).copyResults(pool());
+  auto nations = AssertQueryBuilder(plan).split(makeTpchSplit(tpch::Table::TBL_NATION)).copyResults(pool());
 
   if (nations) {
     std::cout << std::endl << "> TPC-H nation table: \n" << nations->toString() << std::endl;
@@ -206,7 +206,7 @@ void VeloxIn10MinDemo::run() {
   // regions
   plan = PlanBuilder().tpchTableScan(tpch::Table::TBL_REGION, {"r_regionkey", "r_name"}, 1 /*scaleFactor*/).planNode();
 
-  auto regions = AssertQueryBuilder(plan).split(makeTpchSplit()).copyResults(pool());
+  auto regions = AssertQueryBuilder(plan).split(makeTpchSplit(tpch::Table::TBL_REGION)).copyResults(pool());
 
   if (regions) {
     std::cout << std::endl << "> TPC-H region table: \n" << regions->toString() << std::endl;
@@ -242,8 +242,8 @@ void VeloxIn10MinDemo::run() {
   plan = builder.planNode();
 
   auto nationCnt = AssertQueryBuilder(plan)
-                       .split(nationScanId, makeTpchSplit())
-                       .split(regionScanId, makeTpchSplit())
+                       .split(nationScanId, makeTpchSplit(tpch::Table::TBL_NATION))
+                       .split(regionScanId, makeTpchSplit(tpch::Table::TBL_REGION))
                        .copyResults(pool());
 
   if (nationCnt) {

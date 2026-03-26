@@ -18,4 +18,12 @@ RowVectorPtr readTable(
     const std::vector<std::string>& columns,
     int scaleFactor);
 
+RowVectorPtr readTableSplit(
+    memory::MemoryPool* pool,
+    Table table,
+    const std::vector<std::string>& columns,
+    int scaleFactor,
+    int part,
+    int totalParts);
+
 }

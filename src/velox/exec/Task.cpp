@@ -7,6 +7,7 @@
 
 #include "velox/common/base/Exceptions.h"
 #include "velox/dwio/common/RowVectorFile.h"
+#include "velox/tpch/gen/TpchGen.h"
 
 namespace facebook::velox::exec {
 
@@ -41,7 +42,10 @@ class SharedValuesSourceState final : public SourceState {
 
 class SharedSplitSourceState final : public SourceState {
  public:
-  explicit SharedSplitSourceState(std::function<void()> onStateChange) : onStateChange_(std::move(onStateChange)) {}
+  using LoadFn = std::function<RowVectorPtr(memory::MemoryPool*, const Split&)>;
+
+  SharedSplitSourceState(std::function<void()> onStateChange, LoadFn load)
+      : onStateChange_(std::move(onStateChange)), load_(std::move(load)) {}
 
   void addSplit(Split split) {
     std::vector<std::shared_ptr<async::AsyncEvent>> waiters;
@@ -97,7 +101,7 @@ class SharedSplitSourceState final : public SourceState {
       split = std::move(splits_.front());
       splits_.pop_front();
     }
-    return dwio::common::RowVectorFile::read(pool_, split.path());
+    return load_(pool_, split);
   }
 
   void setPool(memory::MemoryPool* pool) {
@@ -116,6 +120,7 @@ class SharedSplitSourceState final : public SourceState {
   bool noMoreSplits_{false};
   memory::MemoryPool* pool_{nullptr};
   std::function<void()> onStateChange_;
+  LoadFn load_;
   std::vector<std::shared_ptr<async::AsyncEvent>> waiters_;
 };
 
@@ -366,7 +371,32 @@ void Task::buildSharedStates() {
 
       if (std::dynamic_pointer_cast<const core::FileScanNode>(planNode)) {
         if (sourceStates_.count(planNode->id()) == 0) {
-          auto state = std::make_shared<SharedSplitSourceState>(onStateChange);
+          auto state = std::make_shared<SharedSplitSourceState>(
+              onStateChange,
+              [](memory::MemoryPool* pool, const Split& split) {
+                return dwio::common::RowVectorFile::read(pool, split.path());
+              });
+          state->setPool(queryCtx_->pool());
+          sourceStates_[planNode->id()] = state;
+        }
+        continue;
+      }
+
+      if (auto tableScan = std::dynamic_pointer_cast<const core::TableScanNode>(planNode)) {
+        if (sourceStates_.count(planNode->id()) == 0) {
+          auto state = std::make_shared<SharedSplitSourceState>(
+              onStateChange,
+              [tableScan](memory::MemoryPool* pool, const Split& split) {
+                VELOX_CHECK(split.isTpchSplit(), "TPC-H table scan requires TpchConnectorSplit");
+                const auto& tpchSplit = split.tpchSplit();
+                return tpch::readTableSplit(
+                    pool,
+                    tableScan->table(),
+                    tableScan->columns(),
+                    tpchSplit->scale(),
+                    tpchSplit->part(),
+                    tpchSplit->totalParts());
+              });
           state->setPool(queryCtx_->pool());
           sourceStates_[planNode->id()] = state;
         }
@@ -437,6 +467,9 @@ std::shared_ptr<Operator> Task::makeOperator(const core::PlanNodePtr& planNode, 
   }
   if (std::dynamic_pointer_cast<const core::FileScanNode>(planNode)) {
     return std::make_shared<FileScanOperator>(planNode, execCtx, sourceStates_.at(planNode->id()));
+  }
+  if (std::dynamic_pointer_cast<const core::TableScanNode>(planNode)) {
+    return std::make_shared<ValuesOperator>(planNode, sourceStates_.at(planNode->id()));
   }
   if (std::dynamic_pointer_cast<const core::TableWriteNode>(planNode)) {
     return std::make_shared<TableWriteOperator>(planNode);
