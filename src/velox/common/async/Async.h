@@ -32,21 +32,21 @@ class AsyncEvent {
   AsyncEvent() : state_(std::make_shared<State>()) {}
 
   bool isReady() const {
-    std::lock_guard<std::mutex> lock(state_->mutex);
-    return state_->ready;
+    std::lock_guard<std::mutex> lock(state_->mutex_);
+    return state_->ready_;
   }
 
   void notify() {
     std::vector<std::function<void()>> callbacks;
     {
-      std::lock_guard<std::mutex> lock(state_->mutex);
-      if (state_->ready) {
+      std::lock_guard<std::mutex> lock(state_->mutex_);
+      if (state_->ready_) {
         return;
       }
-      state_->ready = true;
-      callbacks.swap(state_->callbacks);
+      state_->ready_ = true;
+      callbacks.swap(state_->callbacks_);
     }
-    state_->cv.notify_all();
+    state_->cv_.notify_all();
     for (auto& callback : callbacks) {
       callback();
     }
@@ -55,11 +55,11 @@ class AsyncEvent {
   void subscribe(std::function<void()> callback) const {
     bool runNow = false;
     {
-      std::lock_guard<std::mutex> lock(state_->mutex);
-      if (state_->ready) {
+      std::lock_guard<std::mutex> lock(state_->mutex_);
+      if (state_->ready_) {
         runNow = true;
       } else {
-        state_->callbacks.push_back(std::move(callback));
+        state_->callbacks_.push_back(std::move(callback));
       }
     }
     if (runNow) {
@@ -71,10 +71,10 @@ class AsyncEvent {
 
  private:
   struct State {
-    std::mutex mutex;
-    std::condition_variable cv;
-    bool ready{false};
-    std::vector<std::function<void()>> callbacks;
+    std::mutex mutex_;
+    std::condition_variable cv_;
+    bool ready_{false};
+    std::vector<std::function<void()>> callbacks_;
   };
 
   std::shared_ptr<State> state_;
@@ -94,15 +94,15 @@ class AsyncValue {
   void setValue(T value) {
     std::vector<std::function<void()>> callbacks;
     {
-      std::lock_guard<std::mutex> lock(state_->mutex);
-      if (state_->ready) {
+      std::lock_guard<std::mutex> lock(state_->mutex_);
+      if (state_->ready_) {
         return;
       }
-      state_->value = std::move(value);
-      state_->ready = true;
-      callbacks.swap(state_->callbacks);
+      state_->value_ = std::move(value);
+      state_->ready_ = true;
+      callbacks.swap(state_->callbacks_);
     }
-    state_->cv.notify_all();
+    state_->cv_.notify_all();
     for (auto& callback : callbacks) {
       callback();
     }
@@ -111,37 +111,37 @@ class AsyncValue {
   void setError(std::exception_ptr error) {
     std::vector<std::function<void()>> callbacks;
     {
-      std::lock_guard<std::mutex> lock(state_->mutex);
-      if (state_->ready) {
+      std::lock_guard<std::mutex> lock(state_->mutex_);
+      if (state_->ready_) {
         return;
       }
-      state_->error = std::move(error);
-      state_->ready = true;
-      callbacks.swap(state_->callbacks);
+      state_->error_ = std::move(error);
+      state_->ready_ = true;
+      callbacks.swap(state_->callbacks_);
     }
-    state_->cv.notify_all();
+    state_->cv_.notify_all();
     for (auto& callback : callbacks) {
       callback();
     }
   }
 
   T get() const {
-    std::unique_lock<std::mutex> lock(state_->mutex);
-    state_->cv.wait(lock, [&]() { return state_->ready; });
-    if (state_->error) {
-      std::rethrow_exception(state_->error);
+    std::unique_lock<std::mutex> lock(state_->mutex_);
+    state_->cv_.wait(lock, [&]() { return state_->ready_; });
+    if (state_->error_) {
+      std::rethrow_exception(state_->error_);
     }
-    return *state_->value;
+    return *state_->value_;
   }
 
   void subscribe(std::function<void()> callback) const {
     bool runNow = false;
     {
-      std::lock_guard<std::mutex> lock(state_->mutex);
-      if (state_->ready) {
+      std::lock_guard<std::mutex> lock(state_->mutex_);
+      if (state_->ready_) {
         runNow = true;
       } else {
-        state_->callbacks.push_back(std::move(callback));
+        state_->callbacks_.push_back(std::move(callback));
       }
     }
     if (runNow) {
@@ -153,12 +153,12 @@ class AsyncValue {
 
  private:
   struct State {
-    std::mutex mutex;
-    std::condition_variable cv;
-    bool ready{false};
-    std::optional<T> value;
-    std::exception_ptr error;
-    std::vector<std::function<void()>> callbacks;
+    std::mutex mutex_;
+    std::condition_variable cv_;
+    bool ready_{false};
+    std::optional<T> value_;
+    std::exception_ptr error_;
+    std::vector<std::function<void()>> callbacks_;
   };
 
   std::shared_ptr<State> state_;

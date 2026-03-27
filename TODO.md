@@ -4,5 +4,5 @@
 - [ ] Driver factory: 动态创建 Driver
 - [ ] Partitioned output: 分区输出
 - [ ] Exchange operators: 跨节点数据交换
-- [ ] DistributedPlanBuilder
-- [ ] 添加 Window Operator
+- [ ] 使用iouring 实现真正的异步IO, 不要引入任何阻塞过程
+- [ ] tpch 22条查询计划跑通 sf1

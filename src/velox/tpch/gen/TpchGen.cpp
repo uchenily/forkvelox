@@ -253,6 +253,7 @@ RowVectorPtr makeLineitemSplit(
   const auto start = (fileSize * part) / totalParts;
   const auto end = (fileSize * (part + 1)) / totalParts;
 
+  // FIXME: use async api
   std::ifstream input(path);
   VELOX_CHECK(input.good(), "Failed to open generated TPCH lineitem data at {}", path);
 
