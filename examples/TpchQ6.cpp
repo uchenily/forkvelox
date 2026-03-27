@@ -59,7 +59,7 @@ int main(int argc, char** argv) {
   // 	and l_shipdate < date ':1' + interval '1' year
   // 	and l_discount between :2 - 0.01 and :2 + 0.01
   // 	and l_quantity < :3;
-  auto plan = PlanBuilder()
+  auto builder = PlanBuilder()
                   .tpchTableScan(tpch::Table::TBL_LINEITEM, {"l_shipdate", "l_discount", "l_quantity", "l_revenue"}, 1)
                   .capturePlanNodeId(scanId)
                   .filter("l_shipdate >= 19940101")
@@ -70,8 +70,14 @@ int main(int argc, char** argv) {
                   .partialAggregation({}, {"sum(l_revenue) AS revenue"})
                   .localPartition("tpch_q6_exchange")
                   .localMerge("tpch_q6_exchange")
-                  .finalAggregation({}, {"sum(revenue) AS revenue"})
-                  .planNode();
+                  .finalAggregation({}, {"sum(revenue) AS revenue"});
+  if (answerOutputPath.empty()) {
+    builder.printPlanTree("TPC-H Q6 Plan");
+  }
+  auto plan = builder.planNode();
+  if (answerOutputPath.empty()) {
+    std::cout << plan->toString(true, true) << '\n';
+  }
 
   auto runtime = std::make_shared<core::ExecutionRuntime>();
   auto queryCtx = core::QueryCtx::create(runtime);

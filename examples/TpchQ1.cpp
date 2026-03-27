@@ -92,7 +92,7 @@ int main(int argc, char** argv) {
   // 	l_returnflag,
   // 	l_linestatus;
   // FIXME: expr sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) as sum_charge
-  auto plan = PlanBuilder()
+  auto builder= PlanBuilder()
                   .tpchTableScan(
                       tpch::Table::TBL_LINEITEM,
                       {"l_returnflag",
@@ -128,8 +128,14 @@ int main(int argc, char** argv) {
                        "avg(avg_price) AS avg_price",
                        "avg(avg_disc) AS avg_disc",
                        "sum(count_order) AS count_order"})
-                  .orderBy({"l_returnflag", "l_linestatus"}, false)
-                  .planNode();
+                  .orderBy({"l_returnflag", "l_linestatus"}, false);
+  if (answerOutputPath.empty()) {
+    builder.printPlanTree("TPC-H Q1 Plan");
+  }
+  auto plan = builder.planNode();
+  if (answerOutputPath.empty()) {
+    std::cout << plan->toString(true, true) << '\n';
+  }
 
   auto runtime = std::make_shared<core::ExecutionRuntime>();
   auto queryCtx = core::QueryCtx::create(runtime);

@@ -101,6 +101,7 @@ class SharedSplitSourceState final : public SourceState {
       split = std::move(splits_.front());
       splits_.pop_front();
     }
+    // 执行一次LoadFn, 加载一批数据
     return load_(pool_, split);
   }
 
@@ -200,6 +201,7 @@ Driver::Driver(
     std::shared_ptr<core::ExecCtx> execCtx)
     : operators_(std::move(operators)), execCtx_(std::move(execCtx)) {}
 
+// 目前Driver每次执行包括暂停后恢复重新执行其实都是从头开始的
 BlockingReason Driver::run(
     std::vector<RowVectorPtr>& results,
     std::shared_ptr<async::AsyncEvent>* event,
@@ -499,6 +501,9 @@ std::shared_ptr<Operator> Task::makeOperator(const core::PlanNodePtr& planNode, 
 }
 
 void Task::workerLoop() {
+  // 每一个worker 持有多个runnable状态的driver句柄, 每一轮随机选择其中一个driver执行
+  // driver执行, 直到遇到需要等待某一个阻塞条件时暂停, 并返回需要等待的event
+  // event将设置回调, 下次event触发, 将重新添加这个driver到可运行队列.
   while (true) {
     size_t driverIndex = 0;
     std::shared_ptr<async::AsyncEvent> pendingEventToSubscribe;
@@ -564,6 +569,7 @@ void Task::workerLoop() {
         exception_ = std::make_exception_ptr(std::runtime_error("Task cancelled"));
         failed_ = true;
       } else {
+        // 处于pending状态, 设置要订阅的事件, 当前driver将暂停执行. 当下次出现所订阅事件后, 将会触发driver恢复执行.
         entry.pending_ = true;
         driverPendingStates_[driverIndex].set(event, reason);
         pendingSequenceToSubscribe = ++entry.pendingSequence_;

@@ -6,3 +6,5 @@
 - [ ] Exchange operators: 跨节点数据交换
 - [ ] 使用iouring 实现真正的异步IO, 不要引入任何阻塞过程
 - [ ] tpch 22条查询计划跑通 sf1
+- [ ] 减少AsyncEvent::notify唤醒线程范围(当前 notify_all)
+- [ ] readTableSplit 现在是一次性返回所有数据, 应该改成流式生成, 每次产生一个小的batch (比如4096行, 除了最后一个batch外, 其他的batch行数不能少于4096), 并提供背压, 每一个driver的source算子, 数据队列中最多只能有8个batch source算子与读取数据线程之间是 生产者-消费者关系
